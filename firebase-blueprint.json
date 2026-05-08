@@ -1,0 +1,75 @@
+{
+  "entities": {
+    "Signal": {
+      "title": "Signal",
+      "description": "A trading signal sent by MrTech",
+      "type": "object",
+      "properties": {
+        "pair": { "type": "string", "description": "Trading pair (e.g., XAUUSD)" },
+        "type": { "type": "string", "enum": ["BUY", "SELL"] },
+        "entry": { "type": "string" },
+        "tp": { "type": "string" },
+        "sl": { "type": "string" },
+        "status": { "type": "string", "enum": ["Active", "TP HIT", "SL HIT", "Completed"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "analysisUrl": { "type": "string" }
+      },
+      "required": ["pair", "type", "entry", "tp", "sl", "status", "timestamp"]
+    },
+    "Module": {
+      "title": "Module",
+      "description": "An academy training module",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "videosCount": { "type": "number" },
+        "order": { "type": "number" },
+        "thumbnail": { "type": "string" }
+      },
+      "required": ["title", "description", "videosCount", "order"]
+    },
+    "LivePosition": {
+      "title": "LivePosition",
+      "description": "A live trade currently held by MrTech",
+      "type": "object",
+      "properties": {
+        "pair": { "type": "string" },
+        "type": { "type": "string", "enum": ["BUY", "SELL"] },
+        "entry": { "type": "string" },
+        "currentPrice": { "type": "string" },
+        "pips": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["pair", "type", "entry", "timestamp"]
+    },
+    "AppSetting": {
+      "title": "AppSetting",
+      "description": "Global application settings and announcements",
+      "type": "object",
+      "properties": {
+        "traderNote": { "type": "string" },
+        "lastNoteUpdate": { "type": "string", "format": "date-time" },
+        "marketStatus": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/signals/{signalId}": {
+      "schema": "Signal",
+      "description": "Collection of trading signals"
+    },
+    "/academy/{moduleId}": {
+      "schema": "Module",
+      "description": "Collection of training modules"
+    },
+    "/live_positions/{posId}": {
+      "schema": "LivePosition",
+      "description": "Collection of live positions"
+    },
+    "/settings/global": {
+      "schema": "AppSetting",
+      "description": "Global configuration document"
+    }
+  }
+}

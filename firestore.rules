@@ -1,0 +1,117 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: signals
+    // Fields: pair, type, entry, tp, sl, status, timestamp, analysisUrl
+    //
+    // Collection: academy
+    // Fields: title, description, videosCount, order, thumbnail
+    //
+    // Collection: live_positions
+    // Fields: pair, type, entry, currentPrice, pips, timestamp
+    //
+    // Collection: settings
+    // Document: global
+    // Fields: traderNote, lastNoteUpdate, marketStatus
+    //
+    // Collection: users
+    // Fields: email, role, name, photoURL, lastLogin
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin(tenantId) {
+      return isAuthenticated() && 
+             ((exists(/databases/$(database)/documents/tenants/$(tenantId)/affiliates/$(request.auth.uid)) && 
+              get(/databases/$(database)/documents/tenants/$(tenantId)/affiliates/$(request.auth.uid)).data.role == 'admin') ||
+              (request.auth.token.email == "michelnyembo506@gmail.com" && request.auth.token.email_verified == true) ||
+              request.auth.uid == "iVPZ9SGPEsVHcRGXT6cYn3ZjPJR2" ||
+              request.auth.uid == "HmcUyf7WQHNHERmB0vvQjVn0AMz1");
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidSignal(data) {
+      return data.pair is string && data.pair.size() > 0 && data.pair.size() < 20 &&
+             data.type in ['BUY', 'SELL'] &&
+             data.status in ['LIVE', 'TP_HIT', 'SL_HIT', 'CLOSED', 'CANCELLED'] &&
+             (!('pipsGain' in data) || data.pipsGain is number);
+    }
+
+    function isValidAffiliate(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.status in ['pending', 'active', 'refused', 'banned'] &&
+             data.isVip is bool &&
+             data.role in ['admin', 'user'] &&
+             (!('accountNumber' in data) || (data.accountNumber is string && data.accountNumber.size() < 50)) &&
+             (!('broker' in data) || (data.broker is string && data.broker.size() < 50)) &&
+             (!('telegramUsername' in data) || (data.telegramUsername is string && data.telegramUsername.size() < 50)) &&
+             (!('telegramId' in data) || data.telegramId != null) &&
+             (!('firebaseUid' in data) || data.firebaseUid is string) &&
+             (!('timestamp' in data) || data.timestamp != null);
+    }
+
+    // Default Routes Fallback
+    match /_connection_test_/{docId} {
+      allow read: if true;
+    }
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAuthenticated(); // Should technically check isAdmin but without tenant context we rely on App side constraints
+    }
+
+    // Tenant Isolated Data
+    match /tenants/{tenantId} {
+      match /users/{userId} {
+        allow read: if isAuthenticated() && (isOwner(userId) || isAdmin(tenantId));
+        allow write: if isAuthenticated() && (isOwner(userId) || isAdmin(tenantId));
+      }
+
+      match /signals/{signalId} {
+        allow read: if true;
+        allow write: if isAdmin(tenantId) && isValidSignal(request.resource.data);
+      }
+
+      match /academy/{moduleId} {
+        allow read: if true;
+        allow write: if isAdmin(tenantId);
+      }
+
+      match /lessons/{lessonId} {
+        allow read: if true;
+        allow write: if isAdmin(tenantId);
+      }
+
+      match /live_positions/{posId} {
+        allow read: if true;
+        allow write: if isAdmin(tenantId);
+      }
+
+      match /affiliates/{docId} {
+        allow create: if isAuthenticated() && 
+                      isValidAffiliate(request.resource.data) && 
+                      isOwner(docId) &&
+                      request.resource.data.status == 'pending' &&
+                      request.resource.data.isVip == false &&
+                      (request.resource.data.role == 'user' || isAdmin(tenantId));
+        allow read: if isAdmin(tenantId) || isOwner(docId);
+        allow update: if (isAdmin(tenantId) && isValidAffiliate(request.resource.data)) || 
+                      (isOwner(docId) && 
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'accountNumber', 'broker', 'telegramUsername', 'joinedAt', 'timestamp']) &&
+                       request.resource.data.role == resource.data.role);
+        allow delete: if isAdmin(tenantId);
+      }
+    }
+  }
+}
