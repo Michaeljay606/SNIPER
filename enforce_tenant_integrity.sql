@@ -14,8 +14,8 @@ BEGIN
   -- Get current role
   v_current_role := current_setting('role', true);
 
-  -- Bypass check for service_role (Admin / Edge Functions / Internal Supabase tasks)
-  IF v_current_role = 'service_role' THEN
+  -- Bypass check for service_role (Edge Functions) and postgres (SQL Editor / Admin)
+  IF v_current_role IN ('service_role', 'postgres', 'supabase_admin') THEN
     RETURN NEW;
   END IF;
 

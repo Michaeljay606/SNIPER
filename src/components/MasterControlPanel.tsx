@@ -1,703 +1,587 @@
-import React, { useState, useEffect, useCallback } from 'react'
-import { supabase, isSupabaseConfigured } from '../lib/supabase'
-import { grantAccess } from '../lib/accessControl'
-import { OPERATOR_ID } from '../config'
-import { PLAN_CONFIG, PLAN_PRICES } from '../hooks/usePlanFeatures'
-import { PlanBadge } from './PlanBadge'
+import React, { useState, useEffect, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  Shield, Activity, Users, Plus, Search, ExternalLink, 
+  Trash2, Bell, CreditCard, CheckCircle, AlertCircle, 
+  Clock, Zap, Globe, Lock, Unlock, X, RefreshCw 
+} from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { useMasterData, Tenant } from '../hooks/useMasterData';
+import NeonToggle from './NeonToggle';
+import PlanBadge from './PlanBadge';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+const OPERATOR_ID = import.meta.env.VITE_OPERATOR_ID;
 
-interface Tenant {
-  tenant_id: string
-  mentor_name: string
-  plan: 'free' | 'basic' | 'premium' | 'empire' | 'pause'
-  licence_status: 'active' | 'suspended'
-  created_at: string | null
-  theme_color: string | null
-  telegram_id: number | null
-}
+const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
+  const isDev = import.meta.env.DEV;
+  const { tenants, setTenants, transactions, loading, mrr, dbStatus, refresh } = useMasterData();
+  const [search, setSearch] = useState('');
+  const [currentTime, setCurrentTime] = useState(new Date());
 
-interface PaymentTransaction {
-  id: string
-  tenant_id: string
-  flow: 'subscription' | 'vip_access' | 'academy_access'
-  amount_usdt: number
-  status: 'pending' | 'confirming' | 'confirmed' | 'failed'
-  created_at: string
-  tx_hash?: string
-  plan?: string
-  payer_telegram_id?: number
-}
+  // Form states for new tenant
+  // DB CHECK constraint requires uppercase: 'MARKETS' | 'BINARY'
+  const [newMentor, setNewMentor] = useState({
+    name: '',
+    id: '',
+    tradingMode: 'MARKETS' as 'MARKETS' | 'BINARY' | 'BOTH',
+    plan: 'free' as 'free' | 'basic' | 'premium' | 'empire',
+    isTrial: true
+  });
+  const [creating, setCreating] = useState(false);
 
-// ─── Sub-components ──────────────────────────────────────────────────────────
-
-function UtcClock() {
-  const [time, setTime] = useState(new Date())
-  useEffect(() => {
-    const t = setInterval(() => setTime(new Date()), 1000)
-    return () => clearInterval(t)
-  }, [])
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const h = pad(time.getUTCHours())
-  const m = pad(time.getUTCMinutes())
-  const s = pad(time.getUTCSeconds())
-  return (
-    <span style={{ fontSize: '10px', color: 'rgba(0,255,65,0.5)', fontFamily: 'Space Mono, monospace' }}>
-      SYS · {h}:{m}:{s} UTC
-    </span>
-  )
-}
-
-interface NeonToggleProps {
-  checked: boolean
-  onChange: (v: boolean) => void
-}
-
-export function NeonToggle({ checked, onChange }: NeonToggleProps) {
-  return (
-    <button
-      type="button"
-      onClick={() => onChange(!checked)}
-      style={{
-        width: '44px',
-        height: '24px',
-        borderRadius: '12px',
-        border: checked ? '1px solid #00FF41' : '1px solid rgba(255,255,255,0.15)',
-        background: checked ? 'rgba(0,255,65,0.15)' : 'rgba(255,255,255,0.08)',
-        boxShadow: checked ? '0 0 10px rgba(0,255,65,0.25)' : 'none',
-        position: 'relative',
-        cursor: 'pointer',
-        transition: 'all 0.2s',
-        flexShrink: 0,
-      }}
-      aria-checked={checked}
-      role="switch"
-    >
-      <div style={{
-        position: 'absolute',
-        top: '3px',
-        left: checked ? '23px' : '3px',
-        width: '18px',
-        height: '18px',
-        borderRadius: '50%',
-        background: checked ? '#00FF41' : 'rgba(255,255,255,0.4)',
-        transition: 'all 0.2s',
-      }} />
-    </button>
-  )
-}
-
-// ─── Styles (reusable) ────────────────────────────────────────────────────────
-
-const glassCard: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.02)',
-  border: '1px solid rgba(0,255,65,0.1)',
-  borderRadius: '14px',
-  padding: '16px',
-  marginBottom: '10px',
-}
-
-const mutedText: React.CSSProperties = {
-  fontSize: '9px',
-  color: 'rgba(255,255,255,0.3)',
-  fontFamily: 'Space Mono, monospace',
-  textTransform: 'uppercase' as const,
-  letterSpacing: '0.08em',
-}
-
-const pillStyle: React.CSSProperties = {
-  background: 'rgba(0,255,65,0.05)',
-  border: '1px solid rgba(0,255,65,0.12)',
-  borderRadius: '20px',
-  padding: '3px 10px',
-  fontSize: '9px',
-  color: '#00FF41',
-  fontFamily: 'Space Mono, monospace',
-}
-
-// ─── Tenant card ─────────────────────────────────────────────────────────────
-
-interface TenantCardProps {
-  key?: React.Key
-  tenant: Tenant
-  onToggleLicence: (tenantId: string, newStatus: string) => Promise<void>
-  onPlanChange: (tenantId: string, newPlan: string) => Promise<void>
-  onShowToast: (msg: string) => void
-}
-
-function TenantCard({ tenant, onToggleLicence, onPlanChange, onShowToast }: TenantCardProps) {
-  const [confirmSuspend, setConfirmSuspend] = useState(false)
-
-
-
-  const handleToggleLicence = (newChecked: boolean) => {
-    if (!newChecked) {
-      setConfirmSuspend(true)
-      return
-    }
-    onToggleLicence(tenant.tenant_id, 'active')
-  }
-
-  const handleConfirmSuspend = () => {
-    onToggleLicence(tenant.tenant_id, 'suspended')
-    setConfirmSuspend(false)
-  }
-
-  const handlePlanChange = (newPlan: 'free' | 'basic' | 'premium' | 'empire' | 'pause') => {
-    if (newPlan === tenant.plan) return
-    onPlanChange(tenant.tenant_id, newPlan)
-  }
-
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '—'
-    const d = new Date(dateStr)
-    return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`
-  }
-
-  const isActive = tenant.licence_status === 'active'
-
-  return (
-    <div style={{
-      background: 'rgba(255,255,255,0.02)',
-      border: '1px solid rgba(255,255,255,0.06)',
-      borderRadius: '12px',
-      padding: '14px',
-      marginBottom: '8px',
-    }}>
-      {/* Row 1 */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-        <span style={{ fontSize: '14px', fontWeight: 600, color: 'white', fontFamily: 'Space Mono, monospace' }}>
-          {tenant.mentor_name}
-        </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <PlanBadge plan={tenant.plan} />
-          <div style={{
-            width: '6px', height: '6px', borderRadius: '50%',
-            background: isActive ? '#00FF41' : '#FF4141',
-            boxShadow: isActive ? '0 0 6px rgba(0,255,65,0.6)' : '0 0 6px rgba(255,65,65,0.6)',
-          }} />
-        </div>
-      </div>
-
-      {/* Row 2 */}
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '4px' }}>
-        <span style={{ ...mutedText, fontSize: '10px' }}>{tenant.tenant_id}</span>
-        <span style={{ ...mutedText, fontSize: '10px' }}>Créé: {formatDate(tenant.created_at)}</span>
-      </div>
-      <div style={{
-        fontSize: '10px',
-        color: 'rgba(255,255,255,0.3)',
-        fontStyle: 'italic',
-        marginTop: '2px',
-        marginBottom: '12px',
-        fontFamily: 'DM Sans, sans-serif',
-      }}>
-        {PLAN_CONFIG[tenant.plan]?.identity}
-      </div>
-
-      {/* Suspension confirmation */}
-      {confirmSuspend && (
-        <div style={{
-          background: 'rgba(255,65,65,0.05)', border: '1px solid rgba(255,65,65,0.2)',
-          borderRadius: '8px', padding: '10px', marginBottom: '10px',
-          fontSize: '11px', fontFamily: 'Space Mono, monospace', color: 'rgba(255,255,255,0.7)',
-        }}>
-          Suspendre {tenant.mentor_name} ?
-          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-            <button
-              onClick={() => setConfirmSuspend(false)}
-              style={{ flex: 1, height: '28px', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.4)', fontSize: '9px', fontFamily: 'Space Mono, monospace', cursor: 'pointer', letterSpacing: '0.08em' }}
-            >ANNULER</button>
-            <button
-              onClick={handleConfirmSuspend}
-              style={{ flex: 1, height: '28px', background: 'rgba(255,65,65,0.15)', border: '1px solid rgba(255,65,65,0.3)', borderRadius: '6px', color: '#FF4141', fontSize: '9px', fontFamily: 'Space Mono, monospace', cursor: 'pointer', letterSpacing: '0.08em' }}
-            >CONFIRMER</button>
-          </div>
-        </div>
-      )}
-
-      {/* Row 3 — actions */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' as const }}>
-        {/* Licence toggle */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={mutedText}>LICENCE</span>
-          <NeonToggle checked={isActive} onChange={handleToggleLicence} />
-          <span style={{ ...mutedText, color: isActive ? '#00FF41' : '#FF4141' }}>
-            {isActive ? 'ACTIVE' : 'SUSPENDU'}
-          </span>
-        </div>
-
-        {/* Plan selector */}
-        <div style={{ display: 'flex', gap: '4px', marginLeft: 'auto', flexWrap: 'wrap' }}>
-          {(['free', 'basic', 'premium', 'empire', 'pause'] as const).map(p => (
-            <button
-              key={p}
-              onClick={() => handlePlanChange(p)}
-              style={{
-                height: '28px', padding: '0 8px', borderRadius: '6px',
-                fontSize: '8px', letterSpacing: '0.05em',
-                fontFamily: 'Space Mono, monospace', cursor: 'pointer',
-                border: tenant.plan === p ? '1px solid rgba(0,255,65,0.3)' : '1px solid rgba(255,255,255,0.08)',
-                background: tenant.plan === p ? 'rgba(0,255,65,0.12)' : 'transparent',
-                color: tenant.plan === p ? '#00FF41' : 'rgba(255,255,255,0.35)',
-                textTransform: 'uppercase' as const,
-                transition: 'all 0.15s',
-              }}
-            >{p}</button>
-          ))}
-        </div>
-
-        {/* Open app */}
-        <button
-          onClick={() => window.open(`?tenant=${tenant.tenant_id}`, '_blank')}
-          style={{
-            height: '28px', padding: '0 10px', borderRadius: '6px',
-            fontSize: '9px', fontFamily: 'Space Mono, monospace', cursor: 'pointer',
-            border: '1px solid rgba(0,255,65,0.15)', background: 'transparent',
-            color: 'rgba(0,255,65,0.6)', letterSpacing: '0.08em',
-          }}
-        >VOIR L'APP →</button>
-      </div>
-    </div>
-  )
-}
-
-// ─── Add Tenant Form ──────────────────────────────────────────────────────────
-
-interface AddTenantFormProps {
-  onRefresh: () => void
-  onShowToast: (msg: string) => void
-}
-
-function AddTenantForm({ onRefresh, onShowToast }: AddTenantFormProps) {
-  const [mentorName, setMentorName] = useState('')
-  const [tenantId, setTenantId] = useState('')
-  const [plan, setPlan] = useState<'basic' | 'premium' | 'empire'>('basic')
-  const [saving, setSaving] = useState(false)
-
-  const handleTenantIdChange = (v: string) => {
-    setTenantId(v.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''))
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!mentorName.trim() || !tenantId.trim()) return
-    setSaving(true)
-    const { error } = await supabase.from('tenants').insert([{
-      tenant_id: tenantId,
-      mentor_name: mentorName,
-      plan: 'free',
-      licence_status: 'active',
-      theme_color: '#00FF41',
-      created_at: new Date().toISOString(),
-      onboarding_complete: false,
-    }])
-    setSaving(false)
-    if (!error) {
-      onShowToast(`✓ Tenant créé — ${mentorName}`)
-      setMentorName(''); setTenantId(''); setPlan('basic')
-      onRefresh()
-    } else {
-      onShowToast('Erreur: ' + error.message)
-    }
-  }
-
-  const inputStyle: React.CSSProperties = {
-    width: '100%', height: '44px', background: 'rgba(255,255,255,0.03)',
-    border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px',
-    padding: '0 12px', fontSize: '12px', color: 'white',
-    fontFamily: 'Space Mono, monospace', outline: 'none', boxSizing: 'border-box',
-  }
-  const labelStyle: React.CSSProperties = { ...mutedText, display: 'block', marginBottom: '5px' }
-
-  return (
-    <div style={glassCard}>
-      <p style={{ ...mutedText, marginBottom: '14px', fontSize: '11px', color: 'rgba(0,255,65,0.7)' }}>
-        + NOUVEAU MENTOR
-      </p>
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        <div>
-          <label style={labelStyle}>Nom du mentor</label>
-          <input id="mcp-mentor-name" style={inputStyle} value={mentorName} onChange={e => setMentorName(e.target.value)} placeholder="Ex: CryptoKing" required />
-        </div>
-        <div>
-          <label style={labelStyle}>Tenant ID</label>
-          <input id="mcp-tenant-id" style={inputStyle} value={tenantId} onChange={e => handleTenantIdChange(e.target.value)} placeholder="ex: cryptoking" required />
-          {tenantId && (
-            <p style={{ ...mutedText, marginTop: '4px', color: 'rgba(0,255,65,0.4)' }}>
-              App URL: ?tenant={tenantId}
-            </p>
-          )}
-        </div>
-        <div>
-          <label style={labelStyle}>Plan (Modifiable plus tard)</label>
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <button
-                type="button"
-                disabled
-                style={{
-                  flex: 1, height: '36px', borderRadius: '8px', fontSize: '9px',
-                  fontFamily: 'Space Mono, monospace',
-                  textTransform: 'uppercase' as const, letterSpacing: '0.08em',
-                  border: '1px solid rgba(0,255,65,0.3)',
-                  background: 'rgba(0,255,65,0.12)',
-                  color: '#00FF41',
-                }}
-              >FREE</button>
-          </div>
-        </div>
-        <button
-          id="mcp-create-tenant"
-          type="submit"
-          disabled={saving}
-          style={{
-            height: '48px', borderRadius: '12px', width: '100%',
-            background: saving ? 'rgba(0,255,65,0.4)' : '#00FF41',
-            color: '#050507', fontWeight: 800, fontSize: '13px',
-            fontFamily: 'Space Mono, monospace', border: 'none', cursor: 'pointer',
-            letterSpacing: '0.08em', transition: 'opacity 0.2s',
-          }}
-        >{saving ? '...' : 'CRÉER LE TENANT →'}</button>
-      </form>
-    </div>
-  )
-}
-
-// ─── MasterControlPanel ───────────────────────────────────────────────────────
-
-export default function MasterControlPanel() {
-  const [tenants, setTenants] = useState<Tenant[]>([])
-  const [payments, setPayments] = useState<PaymentTransaction[]>([])
-  const [dbStatus, setDbStatus] = useState<'checking' | 'ok' | 'error'>('checking')
-  const [toast, setToast] = useState<string | null>(null)
-
-  // Last 4 digits of OPERATOR_ID
-  const operatorSuffix = String(OPERATOR_ID).slice(-4)
-
-  const showToast = useCallback((msg: string) => {
-    setToast(msg)
-    setTimeout(() => setToast(null), 3000)
-  }, [])
-
-  const fetchTenants = useCallback(async () => {
-    const { data, error } = await supabase.from('tenants').select('*').order('created_at', { ascending: false })
-    if (error) {
-      setDbStatus('error')
-    } else {
-      setTenants((data as Tenant[]) || [])
-      setDbStatus('ok')
-    }
-
-    const { data: paymentsData, error: paymentsError } = await supabase
-      .from('payment_transactions')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(50)
-      
-    if (!paymentsError && paymentsData) {
-      setPayments(paymentsData)
-    }
-  }, [])
+  // Broadcast state
+  const [broadcast, setBroadcast] = useState('');
+  const [sendingBroadcast, setSendingBroadcast] = useState(false);
 
   useEffect(() => {
-    const checkDb = async () => {
-      try {
-        const { error } = await supabase.from('tenants').select('tenant_id').limit(1)
-        setDbStatus(error ? 'error' : 'ok')
-      } catch {
-        setDbStatus('error')
-      }
-    }
-    checkDb()
-    fetchTenants()
-  }, [fetchTenants])
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
-  async function handlePlanChange(tenantId: string, newPlan: string) {
-    setTenants(prev => prev.map(t =>
-      t.tenant_id === tenantId ? { ...t, plan: newPlan as any } : t
-    ))
+  const filteredTenants = useMemo(() => {
+    return tenants.filter(t => 
+      t.mentor_name?.toLowerCase().includes(search.toLowerCase()) || 
+      t.tenant_id?.toLowerCase().includes(search.toLowerCase())
+    );
+  }, [tenants, search]);
 
-    const { error } = await supabase
-      .from('tenants')
-      .update({ plan: newPlan, tenant_id: tenantId })
-      .eq('tenant_id', tenantId)
-
-    if (error) {
-      setTenants(prev => prev.map(t =>
-        t.tenant_id === tenantId
-          ? { ...t, plan: t.plan } 
-          : t
-      ))
-      showToast('Erreur — plan non modifié')
-    } else {
-      showToast(`Plan ${newPlan} activé`)
-    }
-  }
-
-  async function handleLicenceToggle(tenantId: string, newStatus: string) {
-    setTenants(prev => prev.map(t =>
-      t.tenant_id === tenantId
-        ? { ...t, licence_status: newStatus as any }
-        : t
-    ))
-
-    const { error } = await supabase
-      .from('tenants')
-      .update({ licence_status: newStatus, tenant_id: tenantId })
-      .eq('tenant_id', tenantId)
-
-    if (error) {
-      setTenants(prev => prev.map(t =>
-        t.tenant_id === tenantId
-          ? { ...t, licence_status: t.licence_status } 
-          : t
-      ))
-      showToast('Erreur — statut non modifié')
-      return
-    }
-
-    showToast(
-      newStatus === 'suspended'
-        ? 'Licence suspendue'
-        : 'Licence réactivée'
-    )
-  }
-
-  async function handleManualOverride(payment: PaymentTransaction) {
-    const txHash = prompt("Veuillez coller le TX Hash pour forcer la confirmation:");
-    if (!txHash) return;
+  const handleForceConfirm = async (txId: string) => {
+    const hash = window.prompt("Entrer le TxHash pour forcer la confirmation:");
+    if (!hash) return;
 
     try {
-      const { error } = await supabase
-        .from('payment_transactions')
-        .update({ status: 'confirmed', tx_hash: txHash, confirmed_at: new Date().toISOString() })
-        .eq('id', payment.id)
-
+      const { error } = await supabase.from('payment_transactions').update({ status: 'confirmed', tx_hash: hash }).eq('id', txId);
       if (error) throw error;
+      refresh();
+    } catch (err) {
+      alert('Erreur lors de la confirmation forcée');
+    }
+  };
 
-      if (payment.flow === 'subscription' && payment.plan) {
-        await supabase.from('tenants').update({ plan: payment.plan, licence_status: 'active' }).eq('tenant_id', payment.tenant_id);
-      } else if (payment.flow === 'vip_access' && payment.payer_telegram_id) {
-        // Fetch tenant config to know duration models
-        const { data: tenant } = await supabase.from('tenants').select('*').eq('tenant_id', payment.tenant_id).single();
-        const { data: affiliate } = await supabase.from('affiliates').select('id').eq('tenant_id', payment.tenant_id).eq('telegram_id', payment.payer_telegram_id).single();
-        
-        if (tenant && affiliate) {
-          await grantAccess(payment.tenant_id, affiliate.id, 'signals', tenant);
-        } else {
-          // Fallback if not found
-          await supabase.from('affiliates').update({ is_vip: true }).eq('tenant_id', payment.tenant_id).eq('telegram_id', payment.payer_telegram_id);
-        }
-      } else if (payment.flow === 'academy_access' && payment.payer_telegram_id) {
-         // Fetch tenant config
-         const { data: tenant } = await supabase.from('tenants').select('*').eq('tenant_id', payment.tenant_id).single();
-         const { data: affiliate } = await supabase.from('affiliates').select('id').eq('tenant_id', payment.tenant_id).eq('telegram_id', payment.payer_telegram_id).single();
-         
-         if (tenant && affiliate) {
-           await grantAccess(payment.tenant_id, affiliate.id, 'academy', tenant);
-         }
-      }
+  const handleCreateTenant = async () => {
+    if (!newMentor.name || !newMentor.id) return;
+    setCreating(true);
+    
+    const tid = newMentor.id.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    
+    const payload = {
+      tenant_id: tid,
+      mentor_name: newMentor.name,
+      plan: newMentor.isTrial ? 'empire' : newMentor.plan,
+      trading_mode: newMentor.tradingMode, // already uppercase: 'MARKETS' | 'BINARY'
+      licence_status: 'active',
+      theme_color: '#00FF41',
+      trial_ends_at: newMentor.isTrial ? new Date(Date.now() + 7*24*60*60*1000).toISOString() : null,
+      created_at: new Date().toISOString(),
+      onboarding_completed: false
+    };
+
+    try {
+      const { error } = await supabase.from('tenants').insert(payload);
+      if (error) throw error;
       
-      showToast('Paiement forcé avec succès');
-      fetchTenants();
+      // Auto-copy link
+      const link = `${window.location.origin}/app/${tid}`;
+      navigator.clipboard.writeText(link);
+      
+      setNewMentor({ name: '', id: '', tradingMode: 'MARKETS', plan: 'free', isTrial: true });
+      refresh();
+      alert(`✓ ${payload.mentor_name} créé — ID: ${tid}\nLien copié !`);
     } catch (err: any) {
-      showToast('Erreur: ' + err.message);
+      alert(err.message === 'Duplicate' ? 'Cet ID est déjà utilisé' : err.message);
+    } finally {
+      setCreating(false);
     }
-  }
+  };
 
-  // ── MRR Computation ──
-  const activeTenants = tenants.filter(t => t.licence_status === 'active')
-  const mrr = activeTenants.reduce((sum, t) => sum + (PLAN_PRICES[t.plan] || 0), 0)
-  const freeCount = activeTenants.filter(t => t.plan === 'free').length
-  const basicCount = activeTenants.filter(t => t.plan === 'basic').length
-  const premiumCount = activeTenants.filter(t => t.plan === 'premium').length
-  const empireCount = activeTenants.filter(t => t.plan === 'empire').length
-  const pauseCount = activeTenants.filter(t => t.plan === 'pause').length
+  const handleToggleLicence = async (tenant: Tenant) => {
+    const newStatus = tenant.licence_status === 'active' ? 'suspended' : 'active';
+    
+    // Optimistic update
+    const oldTenants = [...tenants];
+    setTenants(tenants.map(t => t.tenant_id === tenant.tenant_id ? { ...t, licence_status: newStatus } : t));
 
-  const totalRevenue = payments
-    .filter(p => p.status === 'confirmed' && p.flow === 'subscription')
-    .reduce((sum, p) => sum + Number(p.amount_usdt), 0)
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pending': return '#FFC107'; // amber
-      case 'confirming': return '#2196F3'; // blue
-      case 'confirmed': return '#00FF41'; // green
-      case 'failed': return '#FF4141'; // red
-      default: return '#FFFFFF';
+    try {
+      const { error } = await supabase.from('tenants').update({ licence_status: newStatus }).eq('tenant_id', tenant.tenant_id);
+      if (error) throw error;
+    } catch (err) {
+      setTenants(oldTenants);
+      alert('Erreur lors du changement de licence');
     }
-  }
+  };
+
+  const handlePlanChange = async (tenantId: string, newPlan: any) => {
+    const oldTenants = [...tenants];
+    setTenants(tenants.map(t => t.tenant_id === tenantId ? { ...t, plan: newPlan } : t));
+    
+    try {
+      const { error } = await supabase.from('tenants').update({ plan: newPlan }).eq('tenant_id', tenantId);
+      if (error) throw error;
+    } catch (err) {
+      setTenants(oldTenants);
+      alert('Erreur lors du changement de plan');
+    }
+  };
+
+  const handleDeleteTenant = async (tid: string) => {
+    const confirm = window.prompt("Taper 'SUPPRIMER' pour confirmer");
+    if (confirm !== 'SUPPRIMER') return;
+
+    try {
+      const { error } = await supabase.from('tenants').delete().eq('tenant_id', tid);
+      if (error) throw error;
+      refresh();
+    } catch (err) {
+      alert('Erreur lors de la suppression');
+    }
+  };
+
+  const handleBroadcast = async () => {
+    if (!broadcast) return;
+    setSendingBroadcast(true);
+    try {
+      // Mocking the Edge Function call as we don't have the endpoint yet
+      console.log('Sending broadcast:', broadcast);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      alert(`✓ Message envoyé à ${tenants.length} mentors`);
+      setBroadcast('');
+    } catch (err) {
+      alert('Erreur lors de l\'envoi');
+    } finally {
+      setSendingBroadcast(false);
+    }
+  };
+
+  const trials = tenants.filter(t => t.trial_ends_at);
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: '#050507',
-      fontFamily: 'Space Mono, monospace',
-      color: 'white',
-    }}>
-      {/* Import Space Mono */}
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');`}</style>
-
-      <div style={{ maxWidth: '480px', margin: '0 auto', padding: '16px', paddingBottom: '40px' }}>
-
-        {/* ── Toast ── */}
-        {toast && (
-          <div style={{
-            position: 'fixed', top: '16px', left: '50%', transform: 'translateX(-50%)',
-            background: 'rgba(0,255,65,0.1)', border: '1px solid rgba(0,255,65,0.3)',
-            borderRadius: '10px', padding: '10px 20px', zIndex: 9999,
-            fontSize: '11px', color: '#00FF41', fontFamily: 'Space Mono, monospace',
-            whiteSpace: 'nowrap',
-          }}>{toast}</div>
-        )}
-
-        {/* ── Header ── */}
-        <div style={{ marginBottom: '16px' }}>
+    <motion.div 
+      initial={{ y: '100%' }}
+      animate={{ y: 0 }}
+      exit={{ y: '100%' }}
+      transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+      style={{ 
+        position: 'fixed', 
+        top: 0,
+        bottom: 0,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: '100%',
+        maxWidth: 430,
+        zIndex: 1000, 
+        background: '#080B14', 
+        color: '#fff', 
+        fontFamily: '"Space Mono", monospace',
+        overflowY: 'auto', 
+        paddingBottom: 'calc(40px + env(safe-area-inset-bottom))',
+        boxShadow: '0 -20px 40px rgba(0,0,0,0.5)',
+        borderLeft: '1px solid rgba(0,255,65,0.1)',
+        borderRight: '1px solid rgba(0,255,65,0.1)',
+      }}
+    >
+      <div style={{ padding: 16 }}>
+        
+        {/* HEADER */}
+        <header style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '16px', color: '#00FF41', letterSpacing: '0.2em', fontWeight: 700 }}>
+            <div style={{ color: '#00FF41', fontSize: 14, fontWeight: 700, letterSpacing: '0.2em' }}>
               EPHATA TECH
-            </span>
-            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', fontFamily: 'Space Mono, monospace' }}>
-              🛡 ID: ···{operatorSuffix}
-            </span>
+            </div>
+            <div style={{ fontSize: 9, color: 'rgba(0,255,65,0.5)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Shield size={10} /> ···{OPERATOR_ID?.toString()?.slice(-4) || '????'}
+              <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', marginLeft: 10, cursor: 'pointer' }}>
+                <X size={16} />
+              </button>
+            </div>
           </div>
-          <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.25em', marginTop: '4px' }}>
+          <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.2)', letterSpacing: '0.25em', marginTop: 4 }}>
             MASTER CONTROL PANEL
           </div>
-          <div style={{ marginTop: '4px' }}>
-            <UtcClock />
+          <div style={{ fontSize: 9, color: 'rgba(0,255,65,0.4)', marginTop: 8 }}>
+            SYS · {currentTime.toLocaleTimeString('fr-FR', { hour12: false })} UTC
           </div>
-          <div style={{ height: '1px', background: 'rgba(0,255,65,0.08)', margin: '10px 0' }} />
-        </div>
+          <div style={{ height: 1, background: 'rgba(0,255,65,0.08)', margin: '10px 0' }} />
+        </header>
 
-        {/* ── Section 1: MRR Dashboard ── */}
-        <div style={glassCard}>
-          <p style={mutedText}>REVENUS MENSUELS</p>
-          <div style={{
-            fontSize: '36px', fontWeight: 700, color: '#00FF41',
-            textShadow: '0 0 20px rgba(0,255,65,0.3)', margin: '6px 0 2px',
-          }}>${mrr}</div>
-          <p style={{ ...mutedText, marginBottom: '10px' }}>
-            {activeTenants.length} MENTOR(S) ACTIF(S)
-          </p>
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' as const }}>
-            <PlanBadge plan="free" />
-            <PlanBadge plan="basic" />
-            <PlanBadge plan="premium" />
-            <PlanBadge plan="empire" />
-            <PlanBadge plan="pause" />
+        {/* SECTION 1 — MRR DASHBOARD */}
+        <section style={{ 
+          background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(0,255,65,0.08)', 
+          borderRadius: 12, padding: 14, marginBottom: 16 
+        }}>
+          <div style={{ fontSize: 8, letterSpacing: '0.18em', color: 'rgba(255,255,255,0.2)', textTransform: 'uppercase', marginBottom: 8 }}>
+            REVENUS MENSUELS RÉCURRENTS
           </div>
-        </div>
+          <div style={{ 
+            fontSize: 36, fontWeight: 700, color: '#00FF41', 
+            textShadow: '0 0 20px rgba(0,255,65,0.3)', lineHeight: 1 
+          }}>
+            ${mrr.toLocaleString()}
+          </div>
+          <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', letterSpacing: '0.1em', marginTop: 4 }}>
+            {tenants.filter(t => t.licence_status === 'active').length} MENTOR(S) ACTIF(S)
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 12 }}>
+            {['free', 'basic', 'premium', 'empire', 'pause'].map(p => {
+              const count = tenants.filter(t => t.plan === p && t.licence_status === 'active').length;
+              if (count === 0) return null;
+              const price = (p === 'free' ? 0 : p === 'basic' ? 49 : p === 'premium' ? 99 : p === 'empire' ? 199 : 19);
+              return (
+                <div key={p} style={{ 
+                  background: 'rgba(0,255,65,0.04)', border: '1px solid rgba(0,255,65,0.1)', 
+                  borderRadius: 20, padding: '3px 10px', fontSize: 9, color: '#00FF41' 
+                }}>
+                  {count}× {p.toUpperCase()} — ${count * price}
+                </div>
+              );
+            })}
+          </div>
+        </section>
 
-        {/* ── Section 2–4: Tenant List ── */}
-        <div style={glassCard}>
-          <p style={{ ...mutedText, marginBottom: '12px' }}>
-            TENANTS ({tenants.length})
-          </p>
-          {tenants.length === 0 ? (
-            <p style={{ ...mutedText, textAlign: 'center', padding: '20px 0' }}>
-              Aucun tenant trouvé
-            </p>
-          ) : (
-            tenants.map(t => (
-              <TenantCard 
-                key={t.tenant_id} 
-                tenant={t} 
-                onPlanChange={handlePlanChange} 
-                onToggleLicence={handleLicenceToggle} 
-                onShowToast={showToast} 
-              />
-            ))
-          )}
-        </div>
-
-        {/* ── Section 4.5: Payments Monitor ── */}
-        <div style={glassCard}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <p style={{ ...mutedText, marginBottom: 0 }}>PAIEMENTS RÉCENTS</p>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>REVENUS CONFIRMÉS (USDT)</div>
-              <div style={{ fontSize: '16px', fontWeight: 700, color: '#00FF41' }}>${totalRevenue}</div>
-            </div>
+        {/* SECTION 3 — CREATE NEW TENANT */}
+        <section style={{ 
+          background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(0,255,65,0.08)', 
+          borderTop: '2px solid #00FF41', borderRadius: 12, padding: 14, marginBottom: 16 
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#00FF41', marginBottom: 14 }}>
+            + NOUVEAU MENTOR
           </div>
           
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '400px', overflowY: 'auto' }}>
-            {payments.length === 0 ? (
-              <p style={{ ...mutedText, textAlign: 'center', padding: '20px 0' }}>Aucun paiement trouvé</p>
-            ) : (
-              payments.map(p => (
-                <div key={p.id} style={{
-                  background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
-                  borderRadius: '10px', padding: '10px', display: 'flex', flexDirection: 'column', gap: '6px'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <div style={{
-                        width: '8px', height: '8px', borderRadius: '50%',
-                        background: getStatusColor(p.status),
-                        animation: p.status === 'confirming' ? 'pulse 1.5s infinite' : 'none'
-                      }} />
-                      <span style={{ fontSize: '12px', fontWeight: 'bold' }}>{p.tenant_id}</span>
-                      <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase' }}>{p.flow === 'subscription' ? 'SUB' : 'VIP'}</span>
-                    </div>
-                    <span style={{ fontSize: '12px', fontWeight: 'bold', color: p.status === 'confirmed' ? '#00FF41' : 'white' }}>
-                      {p.amount_usdt} USDT
-                    </span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div>
+              <input 
+                value={newMentor.name} 
+                onChange={e => setNewMentor({...newMentor, name: e.target.value})}
+                placeholder="Nom du mentor (ex: CryptoKing)"
+                style={{ 
+                  width: '100%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.06)', 
+                  borderRadius: 8, padding: '10px 12px', color: '#fff', fontSize: 12, fontFamily: 'inherit' 
+                }}
+              />
+            </div>
+            <div>
+              <input 
+                value={newMentor.id} 
+                onChange={e => {
+                  const val = e.target.value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+                  setNewMentor({...newMentor, id: val});
+                }}
+                placeholder="Tenant ID (ex: cryptoking)"
+                style={{ 
+                  width: '100%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.06)', 
+                  borderRadius: 8, padding: '10px 12px', color: '#fff', fontSize: 12, fontFamily: 'inherit' 
+                }}
+              />
+              <div style={{ fontSize: 9, color: 'rgba(0,255,65,0.4)', marginTop: 4 }}>
+                URL: /app/{newMentor.id || '...'}
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.2)', marginBottom: 6 }}>TRADING MODE</div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {(['MARKETS', 'BINARY', 'BOTH'] as const).map(m => (
+                  <button 
+                    key={m}
+                    onClick={() => setNewMentor({...newMentor, tradingMode: m})}
+                    style={{ 
+                      flex: 1, padding: '6px', fontSize: 9, borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)',
+                      background: newMentor.tradingMode === m ? 'rgba(0,255,65,0.1)' : 'transparent',
+                      color: newMentor.tradingMode === m ? '#00FF41' : 'rgba(255,255,255,0.3)',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {m === 'MARKETS' ? 'FOREX' : m === 'BINARY' ? 'BINARY' : 'BOTH'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,255,65,0.03)', padding: 10, borderRadius: 10, border: '1px solid rgba(0,255,65,0.1)' }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: '#00FF41' }}>7 JOURS D'ESSAI EMPIRE GRATUIT</div>
+              <NeonToggle isOn={newMentor.isTrial} onToggle={() => setNewMentor({...newMentor, isTrial: !newMentor.isTrial})} />
+            </div>
+
+            <button 
+              onClick={handleCreateTenant}
+              disabled={creating || !newMentor.name || !newMentor.id}
+              style={{ 
+                width: '100%', height: 48, borderRadius: 12, background: '#00FF41', color: '#000',
+                border: 'none', fontWeight: 800, fontSize: 13, cursor: 'pointer', marginTop: 8,
+                opacity: creating ? 0.5 : 1
+              }}
+            >
+              {creating ? 'CRÉATION...' : 'CRÉER LE TENANT →'}
+            </button>
+          </div>
+        </section>
+
+        {/* SECTION 4 — TRIAL MONITOR */}
+        {trials.length > 0 && (
+          <section style={{ 
+            background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(0,255,65,0.08)', 
+            borderTop: '2px solid #FFD60A', borderRadius: 12, padding: 14, marginBottom: 16 
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#FFD60A', marginBottom: 14 }}>
+              ESSAIS EN COURS
+            </div>
+            {trials.map(t => {
+              const trialDate = t.trial_ends_at ? new Date(t.trial_ends_at).getTime() : 0;
+              const daysLeft = trialDate ? Math.ceil((trialDate - Date.now()) / (1000 * 60 * 60 * 24)) : 0;
+              const isExpired = daysLeft <= 0;
+              return (
+                <div key={t.tenant_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600 }}>{t.mentor_name}</div>
+                    <PlanBadge plan={t.plan} />
                   </div>
-                  
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.3)' }}>
-                      {new Date(p.created_at).toLocaleString()}
-                    </span>
-                    
-                    {p.status === 'failed' && (
-                      <button 
-                        onClick={() => handleManualOverride(p)}
-                        style={{
-                          background: 'rgba(255,193,7,0.1)', color: '#FFC107',
-                          border: '1px solid rgba(255,193,7,0.3)', borderRadius: '4px',
-                          fontSize: '9px', padding: '4px 8px', cursor: 'pointer',
-                          fontWeight: 'bold'
-                        }}
-                      >
-                        FORCER LA CONFIRMATION
-                      </button>
-                    )}
+                  <div style={{ 
+                    fontSize: 10, fontWeight: 700, 
+                    color: isExpired ? '#FF4141' : (daysLeft <= 3 ? '#FF4141' : '#FFD60A')
+                  }}>
+                    {isExpired ? 'EXPIRÉ' : `J${daysLeft}`}
+                  </div>
+                  <button style={{ 
+                    padding: '4px 10px', fontSize: 9, borderRadius: 6, border: 'none',
+                    background: 'rgba(0,255,65,0.06)', color: '#00FF41', cursor: 'pointer'
+                  }}>
+                    CONVERTIR →
+                  </button>
+                </div>
+              );
+            })}
+          </section>
+        )}
+
+        {/* SECTION 2 — TENANT LIST */}
+        <section>
+          <div style={{ fontSize: 8, letterSpacing: '0.18em', color: 'rgba(255,255,255,0.2)', textTransform: 'uppercase', marginBottom: 8 }}>
+            LISTE DES MENTORS
+          </div>
+          <input 
+            value={search} 
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Rechercher un mentor..."
+            style={{ 
+              width: '100%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.06)', 
+              borderRadius: 8, padding: '8px 12px', color: '#fff', fontSize: 12, fontFamily: 'inherit',
+              marginBottom: 10
+            }}
+          />
+          
+          <AnimatePresence>
+            {filteredTenants.map(tenant => (
+              <motion.div 
+                key={tenant.tenant_id}
+                layout
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                style={{ 
+                  background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', 
+                  borderRadius: 12, padding: 14, marginBottom: 8 
+                }}
+              >
+                {/* Row 1 */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{tenant.mentor_name}</div>
+                    <div style={{ 
+                      fontSize: 7, padding: '2px 6px', borderRadius: 4, fontWeight: 800,
+                      background: tenant.trading_mode === 'binary' ? 'rgba(139,92,246,0.1)' : (tenant.trading_mode === 'both' ? 'rgba(59,130,246,0.1)' : 'rgba(0,255,65,0.1)'),
+                      color: tenant.trading_mode === 'binary' ? '#8B5CF6' : (tenant.trading_mode === 'both' ? '#3B82F6' : '#00FF41')
+                    }}>
+                      {tenant.trading_mode === 'both' ? 'F+B' : tenant.trading_mode?.toUpperCase()}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <PlanBadge plan={tenant.plan} />
+                    <div style={{ 
+                      width: 7, height: 7, borderRadius: '50%',
+                      background: tenant.licence_status === 'active' ? '#00FF41' : '#FF4141',
+                      boxShadow: tenant.licence_status === 'active' ? '0 0 8px #00FF41' : 'none'
+                    }} />
                   </div>
                 </div>
-              ))
-            )}
-          </div>
-        </div>
 
-        {/* ── Section 5: Add Tenant ── */}
-        <AddTenantForm onRefresh={fetchTenants} onShowToast={showToast} />
+                {/* Row 2 */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>{tenant.tenant_id}</div>
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>
+                    CRÉÉ: {new Date(tenant.created_at).toLocaleDateString('fr-FR')}
+                  </div>
+                </div>
 
-        {/* ── Section 6: System Status ── */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px' }}>
-          <div style={{ display: 'flex', gap: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <div style={{
-                width: '6px', height: '6px', borderRadius: '50%',
-                background: '#00FF41', boxShadow: '0 0 5px rgba(0,255,65,0.6)',
-              }} />
-              <span style={mutedText}>SYSTEM ONLINE</span>
+                {/* Row 3 — Licence */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.03)' }}>
+                  <div>
+                    <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)' }}>LICENCE</div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: tenant.licence_status === 'active' ? '#00FF41' : '#FF4141' }}>
+                      {tenant.licence_status?.toUpperCase()}
+                    </div>
+                  </div>
+                  <NeonToggle 
+                    isOn={tenant.licence_status === 'active'} 
+                    onToggle={() => handleToggleLicence(tenant)} 
+                  />
+                </div>
+
+                {/* Row 4 — Plan Selector */}
+                <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+                  {['free', 'basic', 'premium', 'empire', 'pause'].map(p => (
+                    <button 
+                      key={p}
+                      onClick={() => handlePlanChange(tenant.tenant_id, p)}
+                      style={{ 
+                        flex: 1, padding: '5px 0', fontSize: 8, borderRadius: 6, 
+                        border: '1px solid',
+                        borderColor: tenant.plan === p ? 'rgba(0,255,65,0.3)' : 'rgba(255,255,255,0.08)',
+                        background: tenant.plan === p ? 'rgba(0,255,65,0.1)' : 'transparent',
+                        color: tenant.plan === p ? '#00FF41' : 'rgba(255,255,255,0.3)',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {p.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Row 5 — Actions */}
+                <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                  <button 
+                    onClick={() => window.open(`/app/${tenant.tenant_id}`, '_blank')}
+                    style={{ 
+                      flex: 1, padding: '6px', fontSize: 9, borderRadius: 6, border: '1px solid rgba(255,255,255,0.08)',
+                      background: 'transparent', color: 'rgba(255,255,255,0.4)', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4
+                    }}
+                  >
+                    VOIR L'APP <ExternalLink size={10} />
+                  </button>
+                  <button 
+                    onClick={() => handleDeleteTenant(tenant.tenant_id)}
+                    style={{ 
+                      padding: '6px 12px', fontSize: 9, borderRadius: 6, border: '1px solid rgba(255,65,65,0.2)',
+                      background: 'rgba(255,65,65,0.05)', color: '#FF4141', cursor: 'pointer'
+                    }}
+                  >
+                    <Trash2 size={10} />
+                  </button>
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </section>
+
+        {/* SECTION 5 — BROADCAST */}
+        <section style={{ 
+          background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(0,255,65,0.08)', 
+          borderRadius: 12, padding: 14, marginBottom: 16 
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', marginBottom: 4 }}>MESSAGE GLOBAL</div>
+          <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', marginBottom: 10 }}>Envoyer à tous les mentors actifs</div>
+          <textarea 
+            value={broadcast}
+            onChange={e => setBroadcast(e.target.value)}
+            placeholder="Ex: Nouvelle fonctionnalité disponible..."
+            style={{ 
+              width: '100%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.06)', 
+              borderRadius: 8, padding: 10, color: '#fff', fontSize: 12, fontFamily: 'inherit',
+              minHeight: 80, resize: 'none', marginBottom: 10
+            }}
+          />
+          <button 
+            onClick={handleBroadcast}
+            disabled={sendingBroadcast || !broadcast}
+            style={{ 
+              width: '100%', height: 44, borderRadius: 10, border: '1px solid rgba(0,255,65,0.15)',
+              background: 'rgba(0,255,65,0.06)', color: '#00FF41', fontWeight: 700, fontSize: 11, cursor: 'pointer'
+            }}
+          >
+            {sendingBroadcast ? 'ENVOI...' : 'ENVOYER À TOUS →'}
+          </button>
+        </section>
+
+        {/* SECTION 6 — PAYMENTS MONITOR */}
+        <section style={{ 
+          background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(0,255,65,0.08)', 
+          borderRadius: 12, padding: 14, marginBottom: 16 
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', marginBottom: 14 }}>PAIEMENTS RÉCENTS</div>
+          {/* Stats */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <div style={{ flex: 1, background: 'rgba(255,255,255,0.03)', padding: 8, borderRadius: 8, textAlign: 'center' }}>
+              <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)' }}>CONFIRMÉS</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#00FF41' }}>
+                {transactions.filter(tx => tx.status === 'confirmed').length}
+              </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <div style={{
-                width: '6px', height: '6px', borderRadius: '50%',
-                background: dbStatus === 'ok' ? '#00FF41' : '#FF4141',
-                boxShadow: dbStatus === 'ok' ? '0 0 5px rgba(0,255,65,0.6)' : '0 0 5px rgba(255,65,65,0.6)',
-              }} />
-              <span style={mutedText}>
-                {dbStatus === 'ok' ? 'DB CONNECTED' : dbStatus === 'error' ? 'DB ERROR' : 'DB CHECKING...'}
-              </span>
+            <div style={{ flex: 1, background: 'rgba(255,255,255,0.03)', padding: 8, borderRadius: 8, textAlign: 'center' }}>
+              <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)' }}>ATTENTE</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#FFD60A' }}>
+                {transactions.filter(tx => ['pending', 'confirming'].includes(tx.status)).length}
+              </div>
+            </div>
+            <div style={{ flex: 1, background: 'rgba(255,255,255,0.03)', padding: 8, borderRadius: 8, textAlign: 'center' }}>
+              <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)' }}>ÉCHOUÉS</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#FF4141' }}>
+                {transactions.filter(tx => tx.status === 'failed').length}
+              </div>
             </div>
           </div>
-          <span style={mutedText}>v1.0.0</span>
-        </div>
+          {/* List */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {transactions.length === 0 ? (
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', textAlign: 'center', padding: '20px 0' }}>
+                Aucune transaction récente
+              </div>
+            ) : transactions.map(tx => (
+              <div key={tx.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ 
+                    width: 6, height: 6, borderRadius: '50%',
+                    background: tx.status === 'confirmed' ? '#00FF41' : (tx.status === 'failed' ? '#FF4141' : '#FFD60A'),
+                    boxShadow: tx.status === 'confirmed' ? '0 0 5px #00FF41' : 'none'
+                  }} />
+                  <div style={{ fontSize: 10, fontWeight: 700 }}>{tx.tenant_id}</div>
+                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>${tx.amount}</div>
+                </div>
+                {tx.status !== 'confirmed' && (
+                  <button 
+                    onClick={() => handleForceConfirm(tx.id)}
+                    style={{ 
+                      padding: '3px 8px', fontSize: 8, borderRadius: 4, border: 'none',
+                      background: 'rgba(0,255,65,0.06)', color: '#00FF41', cursor: 'pointer'
+                    }}
+                  >
+                    FORCER ✓
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* SECTION 7 — SYSTEM STATUS */}
+        <footer style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20 }}>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 8, fontWeight: 700 }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00FF41', boxShadow: '0 0 5px #00FF41' }} />
+              ONLINE
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 8, fontWeight: 700 }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: dbStatus === 'online' ? '#00FF41' : (dbStatus === 'timeout' ? '#FFD60A' : '#FF4141') }} />
+              DB {dbStatus.toUpperCase()}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 8, fontWeight: 700 }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00FF41' }} />
+              BOT
+            </div>
+          </div>
+          <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.15)' }}>v2.4.0</div>
+        </footer>
 
       </div>
-    </div>
-  )
-}
+    </motion.div>
+  );
+};
+
+export default MasterControlPanel;

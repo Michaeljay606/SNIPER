@@ -40,3 +40,28 @@ export const CyberFrame = ({ children, className = "" }: { children: React.React
     {children}
   </div>
 );
+
+export const NeonButton = ({ children, onClick, variant = 'primary', className = "", disabled = false, ...props }: { children: React.ReactNode, onClick?: () => void, variant?: 'primary' | 'danger' | 'ghost', className?: string, disabled?: boolean, [key: string]: any }) => {
+  const base = "relative px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-[0.15em] transition-all duration-300 active:scale-95 disabled:opacity-50 disabled:pointer-events-none overflow-hidden group";
+  const variants = {
+    primary: "bg-accent-emerald text-bg-void shadow-[0_0_15px_rgba(0,255,150,0.3)] hover:shadow-[0_0_25px_rgba(0,255,150,0.5)]",
+    danger: "bg-accent-red text-white shadow-[0_0_15px_rgba(255,50,50,0.3)] hover:shadow-[0_0_25px_rgba(255,50,50,0.5)]",
+    ghost: "bg-transparent text-text-secondary border border-border-subtle hover:bg-white/5"
+  };
+  
+  return (
+    <button onClick={onClick} disabled={disabled} className={`${base} ${variants[variant]} ${className}`} {...props}>
+      <span className="relative z-10 flex items-center justify-center gap-2">{children}</span>
+    </button>
+  );
+};
+
+export const SubtlePremiumLoader = () => (
+  <div className="flex items-center gap-2">
+    <div className="flex gap-1">
+      <div className="w-1.5 h-1.5 rounded-full bg-accent-emerald animate-pulse" />
+      <div className="w-1.5 h-1.5 rounded-full bg-accent-emerald animate-pulse [animation-delay:200ms]" />
+      <div className="w-1.5 h-1.5 rounded-full bg-accent-emerald animate-pulse [animation-delay:400ms]" />
+    </div>
+  </div>
+);

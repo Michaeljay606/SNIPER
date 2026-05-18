@@ -1,532 +1,1166 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useTranslation } from 'react-i18next';
-import { 
-  BarChart3, 
-  Activity, 
-  Send, 
-  TrendingUp, 
-  TrendingDown, 
-  CheckCircle, 
-  Zap, 
-  Target, 
-  ChevronDown, 
-  X,
-  Activity as ActivityIcon
-} from 'lucide-react';
-import { useUserRole } from '../../hooks/useUserRole';
-import { usePlanFeatures } from '../../hooks/usePlanFeatures';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Clock } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { compressAndUpload } from '../../lib/upload';
-import { GlassCard, Badge, TechHeader } from '../ui/Shared';
-import NeonButton from '../NeonButton';
+import { useParams } from 'react-router-dom';
+import { useClientConfig } from '../../hooks/useClientConfig';
+import { useSignals } from '../../hooks/useSignals';
+import { useUserRole } from '../../hooks/useUserRole';
+import { useQueryClient } from '@tanstack/react-query';
+import { Activity } from 'lucide-react';
+import VipModal from '../VipModal';
 
-const withTimeout = (promise: any, ms: number = 30000): Promise<any> => {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(`Délais d'attente dépassé (${ms / 1000}s). Perte de connexion avec la base de données.`));
-    }, ms);
-    Promise.resolve(promise)
-      .then((value) => {
-        clearTimeout(timer);
-        resolve(value);
-      })
-      .catch((err) => {
-        clearTimeout(timer);
-        reject(err);
+interface Signal {
+  id: string;
+  pair?: string;
+  asset?: string;
+  type?: string;
+  signal_type?: string; // 'LIVE' | 'WATCH'
+  direction?: string;
+  mode?: 'forex' | 'binary';
+  entry?: string;
+  entry_low?: number;
+  entry_high?: number;
+  sl?: string;
+  tp?: string;
+  expiration?: string;
+  payout_pct?: number;
+  rr?: string;
+  status: string;
+  created_at: string;
+  is_vip?: boolean;
+  analysis_note?: string;
+  watch_activated_at?: string;
+  timestamp?: string;
+  martingale?: string;
+  gale_stage?: number;
+  gale_activated_at?: string;
+}
+
+const TICKERS = [
+  { pair: 'XAUUSD', price: '2 345.32', arrow: '▲', up: true },
+  { pair: 'EURUSD', price: '1.0842',   arrow: '▼', up: false },
+  { pair: 'BTCUSD', price: '62 410',   arrow: '▲', up: true },
+];
+
+const DashboardTab = () => {
+  const { tenant_id } = useParams();
+  const { config } = useClientConfig();
+  const { isAdmin, canSeeVipSignals } = useUserRole();
+  const queryClient = useQueryClient();
+
+  const optimisticUpdate = (signalId: string, updates: Partial<Signal>) => {
+    const tid = tenant_id || 'default';
+    const keys = [
+      ['signals', tid, 'binary'],
+      ['signals', tid, 'both']
+    ];
+    keys.forEach(key => {
+      queryClient.setQueryData(key, (old: any) => {
+        if (!old) return old;
+        return old.map((s: any) => {
+          if (s.id === signalId) {
+            return { ...s, ...updates };
+          }
+          return s;
+        });
       });
-  });
-};
+    });
+  };
+  
+  // Normalize trading mode from config
+  const rawMode = (config?.tradingMode || config?.trading_mode || 'forex').toLowerCase();
+  const tradingMode: 'forex' | 'binary' | 'both' = 
+    rawMode === 'binary' ? 'binary' : 
+    (rawMode === 'both' ? 'both' : 'forex');
 
-const MarketTicker = () => {
-  const [prices, setPrices] = useState({
-    XAUUSD: 2345.67,
-    EURUSD: 1.0845,
-    BTCUSD: 67890.12
-  });
+  const { signals, isLoading: signalsLoading } = useSignals(tenant_id || 'default', tradingMode);
+  const { loading: configLoading } = useClientConfig();
 
-  const [prevPrices, setPrevPrices] = useState(prices);
+  const [isVipModalOpen, setIsVipModalOpen] = useState(false);
+  const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setPrevPrices(prices);
-      setPrices(prev => ({
-        XAUUSD: prev.XAUUSD + (Math.random() - 0.5) * 0.5,
-        EURUSD: prev.EURUSD + (Math.random() - 0.5) * 0.0001,
-        BTCUSD: prev.BTCUSD + (Math.random() - 0.5) * 10
-      }));
-    }, 3000);
+    const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
-  }, [prices]);
+  }, []);
 
-  return (
-    <div className="flex gap-0 bg-bg-surface border border-border-subtle rounded-lg overflow-hidden">
-      {Object.entries(prices).map(([pair, price]) => {
-        const isUp = price >= prevPrices[pair as keyof typeof prices];
-        return (
-          <div key={pair} className="flex-1 flex items-center justify-between px-3 py-2 border-r border-border-subtle last:border-r-0">
-            <div>
-              <div className="text-[9px] text-text-muted font-mono tracking-wider">{pair}</div>
-              <div className={`text-xs font-bold font-mono ${isUp ? 'text-accent-emerald' : 'text-accent-red'}`}>
-                {(price as number).toFixed(pair === 'EURUSD' ? 4 : 2)}
-              </div>
-            </div>
-            <span className={`text-[10px] mt-2 ${isUp ? 'text-accent-emerald' : 'text-accent-red'}`}>
-              {isUp ? '▲' : '▼'}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-};
+  const isOverallLoading = signalsLoading || configLoading;
 
-const DashboardTab = ({ onShowToast, victories, liveSignals, config, tenantProfile, isScrolled, previewRole, setShowVipModal }: { 
-  onShowToast: (m: string, t?: 'success' | 'error') => void,
-  victories: any[],
-  liveSignals: any[],
-  config: any,
-  tenantProfile: any,
-  isScrolled: boolean,
-  previewRole?: 'admin' | 'vip' | 'free' | null,
-  setShowVipModal: (show: boolean) => void
-}) => {
-  const { t, i18n } = useTranslation();
-  const { isFree: realIsFree, isAdmin: realIsAdmin, canAccessSignals, canAccessAcademy, currentUser } = useUserRole();
-  const isFree = previewRole === 'free' ? true : (previewRole === 'vip' || previewRole === 'admin' ? false : realIsFree);
-  const isAdmin = previewRole === 'admin' ? true : realIsAdmin;
-  const canAccessSignalsStatus = previewRole === 'vip' ? true : (previewRole === 'free' ? false : canAccessSignals);
-  const isVipUser = canAccessSignalsStatus; 
-  const features = usePlanFeatures(config?.plan);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState<string | null>(null);
-  const [showStatsModal, setShowStatsModal] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [activeSignalId, setActiveSignalId] = useState<string | null>(null);
 
-  const displayedSignals = useMemo(() => {
-    const sorted = [...liveSignals].sort((a, b) => {
-      if (a.status === 'LIVE' && b.status !== 'LIVE') return -1;
-      if (a.status !== 'LIVE' && b.status === 'LIVE') return 1;
-      if (a.status === 'WATCH' && b.status !== 'WATCH') return -1;
-      if (a.status !== 'WATCH' && b.status === 'WATCH') return 1;
-      return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
-    });
+  const filteredSignals = useMemo(() => {
+    if (!signals) return [];
+    
+    if (tradingMode === 'forex') {
+      return signals.filter(s =>
+        s.mode === 'forex' || s.mode === null || s.mode === undefined
+      );
+    }
+    
+    if (tradingMode === 'binary') {
+      return signals.filter(s => s.mode === 'binary');
+    }
+    
+    return signals;
+  }, [signals, tradingMode]);
 
-    const getGroupLabel = (signal: any) => {
-      if (signal.status === 'WATCH') return t('dashboard.active_alerts');
-      if (signal.status === 'LIVE') return t('dashboard.live_now');
-      const sigDate = new Date(signal.timestamp);
+  function groupSignalsByDate(sigs: Signal[]) {
+    const groups: Record<string, Signal[]> = {};
+    
+    sigs.forEach(signal => {
+      const date = signal.created_at ? new Date(signal.created_at) : new Date();
       const today = new Date();
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
       
-      if (sigDate.toDateString() === today.toDateString()) return t('dashboard.today');
-      if (sigDate.toDateString() === yesterday.toDateString()) return t('dashboard.yesterday');
-      
-      return new Intl.DateTimeFormat(i18n.language === 'fr' ? 'fr-FR' : 'en-US', { day: 'numeric', month: 'long' }).format(sigDate);
-    };
-
-    const result: any[] = [];
-    let currentLabel = '';
-
-    sorted.forEach((signal, index) => {
-      const label = getGroupLabel(signal);
-      if (label !== currentLabel) {
-        result.push({ isHeader: true, label, id: `header-${label}` });
-        currentLabel = label;
+      let key: string;
+      if (date.toDateString() === today.toDateString()) {
+        key = 'AUJOURD\'HUI';
+      } else if (date.toDateString() === yesterday.toDateString()) {
+        key = 'HIER';
+      } else {
+        key = date.toLocaleDateString('fr-FR', {
+          day: 'numeric',
+          month: 'long',
+          year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined
+        }).toUpperCase();
       }
-      result.push({ ...signal, originalIndex: index });
+      
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(signal);
     });
 
-    return result;
-  }, [liveSignals, t, i18n.language]);
+    return groups;
+  }
 
-  useEffect(() => {
-    if (isUploading) {
-      const timer = setTimeout(() => {
-        setIsUploading(null);
-        onShowToast(t('common.timeout'), "error");
-      }, 65000);
-      return () => clearTimeout(timer);
-    }
-  }, [isUploading, onShowToast, t]);
-
-  const isMarketOpen = useMemo(() => {
-    const now = new Date();
-    const day = now.getUTCDay();
-    return day !== 0 && day !== 6;
-  }, []);
-
-  const handleResultUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !activeSignalId) return;
-
-    try {
-      setIsUploading(activeSignalId);
-      const url = await compressAndUpload(file, 'results', (msg) => onShowToast(msg));
-      
-      const currentSignal = liveSignals.find(s => s.id === activeSignalId);
-      let newImages = url;
-      if (currentSignal && currentSignal.resultImage) {
-        const existingImages = currentSignal.resultImage.split('||').filter(Boolean);
-        existingImages.push(url);
-        newImages = existingImages.join('||');
-      }
-
-      const { error } = await withTimeout(supabase
-        .from('signals')
-        .update({ 
-          result_image: newImages,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', activeSignalId), 30000);
-        
-      if (error) throw error;
-      onShowToast(t('dashboard.result_published'));
-    } catch (error: any) {
-      onShowToast(`${t('onboarding.error_prefix')} ` + (error.message || t('status.failed')), "error");
-    } finally {
-      setIsUploading(null);
-      setActiveSignalId(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
+  const isClosed = (s: Signal) => ['tp', 'sl', 'cancelled'].includes(s.status);
+  const isWatchSignal = (s: Signal) => s.signal_type === 'WATCH';
+  const isBin    = (s: Signal) => (s.mode || 'forex') === 'binary';
+  const isUp     = (s: Signal) => {
+    const d = (s.direction || '').toUpperCase();
+    return d.includes('BUY') || d.includes('CALL');
   };
 
-  const getRelativeTime = (timestamp: any) => {
-    if (!timestamp) return '';
-    const date = timestamp.seconds ? new Date(timestamp.seconds * 1000) : new Date(timestamp);
-    const now = new Date();
-    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+  const liveSignals = useMemo(() => {
+    if (!filteredSignals) return [];
+    return filteredSignals.filter(s => !isClosed(s) && !isWatchSignal(s));
+  }, [filteredSignals]);
+
+  const watchSignals = useMemo(() => {
+    if (!filteredSignals) return [];
+    return filteredSignals.filter(s => isWatchSignal(s) && s.status === 'active');
+  }, [filteredSignals]);
+
+  const historicalSignals = useMemo(() => {
+    if (!filteredSignals) return [];
+    return filteredSignals.filter(s => isClosed(s));
+  }, [filteredSignals]);
+
+  const groupedHistorical = useMemo(() => groupSignalsByDate(historicalSignals), [historicalSignals]);
+
+  const historicalKeys = useMemo(() => Object.keys(groupedHistorical).sort((a, b) => {
+    if (a === 'AUJOURD\'HUI') return -1;
+    if (b === 'AUJOURD\'HUI') return 1;
+    if (a === 'HIER') return -1;
+    if (b === 'HIER') return 1;
     
-    if (diffInSeconds < 60) return t('dashboard.time_now');
-    if (diffInSeconds < 3600) return t('dashboard.time_ago_m', { count: Math.floor(diffInSeconds / 60) });
-    if (diffInSeconds < 86400) return t('dashboard.time_ago_h', { count: Math.floor(diffInSeconds / 3600) });
-    return date.toLocaleDateString();
+    const sigA = groupedHistorical[a][0];
+    const sigB = groupedHistorical[b][0];
+    if (!sigA || !sigB) return 0;
+    return new Date(sigB.created_at).getTime() - new Date(sigA.created_at).getTime();
+  }), [groupedHistorical]);
+
+  const fmt = (ts?: string) => {
+    const d = ts ? new Date(ts) : new Date();
+    return isNaN(d.getTime()) ? 'NOW' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  return (
-    <div className="no-scrollbar flex flex-col">
-      <div className={`fixed ${isScrolled ? 'top-16' : 'top-24'} left-0 right-0 max-w-[430px] mx-auto z-[120] flex flex-col transition-all duration-200 border-b ${isScrolled ? 'bg-nav-bg backdrop-blur-xl border-nav-border' : 'bg-bg-base border-transparent'} pb-2`}>
-        <div className={`px-4 sm:px-4 transition-all duration-200 overflow-hidden ${isScrolled ? 'h-0 opacity-0' : 'pt-4 pb-2 h-auto opacity-100'}`}>
-          <MarketTicker />
+  const renderResultBadge = (s: Signal) => {
+    const bin = isBin(s);
+    if (s.status === 'tp') {
+      if (bin) {
+        return (
+          <div className="result-pill" style={{ background: 'rgba(0,255,65,0.1)', border: '1px solid rgba(0,255,65,0.3)', color: 'var(--green)' }}>
+            ✓ WIN {s.rr || 'DIRECT'}
+          </div>
+        );
+      }
+      const lbl = s.rr ? `+${s.rr} Pips` : '';
+      return (
+        <div className="result-pill" style={{ background: 'rgba(0,255,65,0.1)', border: '1px solid rgba(0,255,65,0.3)', color: 'var(--green)' }}>
+          ✓ TP {lbl}
         </div>
-        <header className={`flex items-center justify-between px-4 sm:px-4 transition-all duration-200 ${isScrolled ? 'py-1' : 'py-0'}`}>
-          <div className="flex items-center gap-2">
-            <h2 className={`font-medium tracking-[0.1em] text-text-primary transition-all duration-200 ${isScrolled ? 'text-xs' : 'text-xs'}`}>{t('live.title')} <span className="font-black text-accent-emerald">LIVE</span></h2>
-            {!isScrolled && <div className="w-1 h-1 bg-accent-emerald rounded-full pulse-live" />}
+      );
+    }
+    if (s.status === 'sl') {
+      if (bin) {
+        return (
+          <div className="result-pill" style={{ background: 'rgba(255,59,48,0.1)', border: '1px solid rgba(255,59,48,0.3)', color: 'var(--red)' }}>
+            ✗ LOSS
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant={isMarketOpen ? 'neon' : 'secondary'} className="!text-[7px] py-0.5 px-1.5">
-              {isMarketOpen ? t('live.market_open') : t('live.market_closed')}
-            </Badge>
-          </div>
-        </header>
+        );
+      }
+      const lbl = s.rr ? `${s.rr}p` : '';
+      return (
+        <div className="result-pill" style={{ background: 'rgba(255,59,48,0.1)', border: '1px solid rgba(255,59,48,0.3)', color: 'var(--red)' }}>
+          ✗ SL {lbl}
+        </div>
+      );
+    }
+    if (s.status === 'cancelled') return (
+      <div className="result-pill" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)' }}>
+        ANNULÉ
       </div>
+    );
+    return (
+      <div className="live-ind">
+        <span className="live-dot" />
+        LIVE
+      </div>
+    );
+  };
 
-      <div className={`space-y-3 px-4 sm:px-4 transition-all duration-200 ${isScrolled ? 'pt-20' : 'pt-[100px]'} fade-in-up`}>
-        <input type="file" ref={fileInputRef} onChange={handleResultUpload} className="hidden" accept="image/*" />
+  // ─── WATCH CARD ───────────────────────────────────────────────
+  const renderWatchCard = (s: Signal) => {
+    const up = isUp(s);
+    const bin = isBin(s);
+    const dirLabel = bin ? (up ? '▲ CALL' : '▼ PUT') : (up ? '▲ BUY' : '▼ SELL');
+    
+    const isLockedVip = s.is_vip && !canSeeVipSignals;
+    const dirClass = isLockedVip ? 'sig-vip-locked' : (up ? 'sig-call' : 'sig-put');
+    const cornerColor = isLockedVip ? '#FFD60A' : (up ? 'var(--green)' : 'var(--red)');
+    
+    // VIP Theme integration
+    const themeColor = s.is_vip ? '#FFD60A' : 'var(--amber)';
+    const themeRgb = s.is_vip ? '255,214,10' : '255,178,0';
 
-        {currentUser?.status === 'pending' && (
-          <div style={{
-            background: 'var(--accent-gold-dim)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: '10px',
-            padding: '12px 14px',
-            marginBottom: '12px',
-            fontSize: '11px',
-            color: 'var(--accent-gold)',
-            letterSpacing: '0.08em',
-            fontFamily: 'Space Mono, monospace',
-            textAlign: 'center',
+    const activeClass = s.is_vip 
+      ? 'is-vip-active' 
+      : (up ? 'is-buy-active' : 'is-sell-active');
+
+    return (
+      <div key={s.id} className={`sig-card ${dirClass} ${activeClass}`}>
+        <div className="corner c-tl" style={{ borderColor: cornerColor }} />
+        <div className="corner c-tr" style={{ borderColor: cornerColor }} />
+        <div className="corner c-bl" style={{ borderColor: cornerColor }} />
+        <div className="corner c-br" style={{ borderColor: cornerColor }} />
+
+        <div style={{ position: 'absolute', top: 0, left: 0, background: themeColor, padding: '3px 10px', borderRadius: '0 0 8px 0', fontSize: 7, fontFamily: 'var(--mono)', fontWeight: 700, color: '#000', zIndex: 5 }}>
+          ALERTE
+        </div>
+
+        <div className="card-top" style={{ marginTop: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <span className="card-pair">{s.pair || s.asset || 'ASSET'}</span>
+            {isLockedVip ? (
+              <span className="type-badge" style={{ background: 'rgba(255,214,10,0.1)', color: '#FFD60A', border: '1px solid rgba(255,214,10,0.3)', fontFamily: 'var(--mono)', fontSize: '8px' }}>
+                🔒 VIP
+              </span>
+            ) : (
+              <span className={`type-badge ${up ? 'tb-call' : 'tb-put'}`}>
+                {dirLabel}
+              </span>
+            )}
+            {s.is_vip ? (
+              <span className="vip-badge" style={{ background: 'rgba(255,214,10,0.1)', color: '#FFD60A', border: '1px solid rgba(255,214,10,0.3)' }}>VIP</span>
+            ) : (
+              <span className="vip-badge" style={{ background: 'rgba(0,255,65,0.1)', color: '#00FF41', border: '1px solid rgba(0,255,65,0.3)' }}>GRATUIT</span>
+            )}
+          </div>
+          <div className="live-ind" style={{ color: themeColor }}>
+            <span className="live-dot" style={{ background: themeColor, boxShadow: `0 0 8px rgba(${themeRgb},0.8)`, animation: 'pulse-glow 1.5s infinite' }} />
+            SURVEILLANCE
+          </div>
+        </div>
+
+        {s.is_vip && !canSeeVipSignals ? (
+          <div style={{ position: 'relative', marginTop: 8, height: 100, overflow: 'hidden', borderRadius: 10 }}>
+            <div style={{ filter: 'blur(12px)', userSelect: 'none', pointerEvents: 'none', opacity: 0.85, transform: 'scale(0.85)', transformOrigin: 'center top' }}>
+              <div className="binary-hero">
+                <div className="b-stat">
+                  <div className="b-val" style={{ color: bin ? themeColor : 'var(--red)' }}>—</div>
+                  <div className="b-lbl" style={{ color: bin ? undefined : 'rgba(255,59,48,0.6)' }}>{bin ? 'EXPIRATION' : 'STOP LOSS'}</div>
+                </div>
+                <div className="b-stat" style={{ borderLeft: '1px solid var(--subtle)', borderRight: '1px solid var(--subtle)' }}>
+                  <div className="b-val" style={{ color: themeColor, fontSize: '14px' }}>À DÉFINIR</div>
+                  <div className="b-lbl">ZONE D'ENTRÉE</div>
+                </div>
+                <div className="b-stat">
+                  <div className="b-val" style={{ color: bin ? '#fff' : 'var(--green)' }}>—</div>
+                  <div className="b-lbl" style={{ color: bin ? undefined : 'rgba(0,255,65,0.6)' }}>{bin ? 'PAYOUT' : 'TAKE PROFIT'}</div>
+                </div>
+              </div>
+              <div className="payout-bar-bg">
+                <div className="payout-bar-fill" style={{ width: '100%', background: `rgba(${themeRgb}, 0.5)` }} />
+              </div>
+            </div>
+            
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(8,11,20,0.18)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                <span style={{ fontSize: '22px' }}>🔐</span>
+                <span style={{ fontFamily: 'var(--mono)', fontSize: '13px', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.95)', fontWeight: 700 }}>
+                  ALERTE VIP
+                </span>
+              </div>
+              <button onClick={() => setIsVipModalOpen(true)} style={{ fontFamily: 'var(--mono)', fontSize: '11px', padding: '8px 20px', borderRadius: '24px', background: 'rgba(255,214,10,0.16)', border: '1px solid rgba(255,214,10,0.4)', color: '#FFD60A', cursor: 'pointer', letterSpacing: '0.05em', fontWeight: 800, transition: 'all 0.2s' }}>
+                DÉBLOQUER L'ACCÈS
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="binary-hero">
+              <div className="b-stat">
+                <div className="b-val" style={{ color: bin ? themeColor : 'var(--red)' }}>—</div>
+                <div className="b-lbl" style={{ color: bin ? undefined : 'rgba(255,59,48,0.6)' }}>{bin ? 'EXPIRATION' : 'STOP LOSS'}</div>
+              </div>
+              <div className="b-stat" style={{ borderLeft: '1px solid var(--subtle)', borderRight: '1px solid var(--subtle)' }}>
+                <div className="b-val" style={{ color: themeColor, fontSize: '18px', whiteSpace: 'nowrap' }}>
+                  {s.entry_low && s.entry_high 
+                    ? `${s.entry_low} - ${s.entry_high}` 
+                    : (s.entry_low || s.entry_high || s.entry || 'À DÉFINIR')}
+                </div>
+                <div className="b-lbl">ZONE D'ENTRÉE</div>
+              </div>
+              <div className="b-stat">
+                <div className="b-val" style={{ color: bin ? '#fff' : 'var(--green)' }}>—</div>
+                <div className="b-lbl" style={{ color: bin ? undefined : 'rgba(0,255,65,0.6)' }}>{bin ? 'PAYOUT' : 'TAKE PROFIT'}</div>
+              </div>
+            </div>
+
+            <div className="payout-bar-bg">
+              <div className="payout-bar-fill" style={{ width: '100%', background: `rgba(${themeRgb}, 0.5)` }} />
+            </div>
+
+            {s.analysis_note && (
+              <div style={{ marginTop: 12, marginBottom: 4 }}>
+                <p style={{ fontFamily: 'var(--sans)', fontSize: 11, color: 'rgba(255,255,255,0.7)', fontStyle: 'italic', margin: 0, padding: '8px 12px', background: 'rgba(255,255,255,0.02)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.05)' }}>
+                  💬 "{s.analysis_note}"
+                </p>
+              </div>
+            )}
+          </>
+        )}
+
+        <div className="card-bottom" style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: themeColor }}>
+            En attente d'activation...
+          </span>
+          <span className="card-time">
+            <Clock size={9} style={{ display: 'inline', marginRight: 3 }} />
+            {fmt(s.created_at)}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  const renderForexCard = (s: Signal, isNew: boolean) => {
+    const up      = isUp(s);
+    const closed  = isClosed(s);
+    
+    const isLockedVip = s.is_vip && !canSeeVipSignals;
+    const dirClass = isLockedVip ? 'sig-vip-locked' : (up ? 'sig-buy' : 'sig-sell');
+    const cornerColor = isLockedVip ? '#FFD60A' : (up ? 'var(--green)' : 'var(--red)');
+    const badgeBg = isLockedVip ? '#FFD60A' : (up ? 'var(--green)' : 'var(--red)');
+    const badgeFg = isLockedVip ? '#050507' : (up ? '#050507' : '#fff');
+    
+    const activationTime = s.watch_activated_at ? new Date(s.watch_activated_at).getTime() : new Date(s.created_at).getTime();
+    const isJustActivated = (now - activationTime) < 300000;
+
+    const calculatedRR = (() => {
+      const parsedEntry = s.entry || s.entry_low || s.entry_high;
+      if (!parsedEntry || !s.sl || !s.tp) return s.rr || '2.0';
+
+      const entryVal = parseFloat(String(parsedEntry).replace(/[^0-9.]/g, ''));
+      const slVal = parseFloat(String(s.sl).replace(/[^0-9.]/g, ''));
+      
+      // Get the first TP level
+      const firstTpStr = String(s.tp).split(',')[0].trim();
+      const tpVal = parseFloat(firstTpStr.replace(/[^0-9.]/g, ''));
+
+      if (isNaN(entryVal) || isNaN(slVal) || isNaN(tpVal)) return s.rr || '2.0';
+
+      const risk = Math.abs(entryVal - slVal);
+      const reward = Math.abs(tpVal - entryVal);
+
+      if (risk === 0) return s.rr || '2.0';
+
+      const ratio = reward / risk;
+      return ratio.toFixed(1);
+    })();
+
+    const activeClass = closed ? '' : ((s.is_vip || isJustActivated) ? 'is-vip-active' : (up ? 'is-buy-active' : 'is-sell-active'));
+
+    return (
+      <div key={s.id} className={`sig-card ${dirClass} ${activeClass}`} style={{ 
+        opacity: closed ? 0.6 : 1,
+      }}>
+        <div className="corner c-tl" style={{ borderColor: cornerColor }} />
+        <div className="corner c-tr" style={{ borderColor: cornerColor }} />
+        <div className="corner c-bl" style={{ borderColor: cornerColor }} />
+        <div className="corner c-br" style={{ borderColor: cornerColor }} />
+
+        {!closed && s.signal_type === 'WATCH' ? (
+          <div style={{ position: 'absolute', top: 0, left: 0, background: s.is_vip ? '#FFD60A' : '#0098EA', padding: '3px 10px', borderRadius: '0 0 8px 0', fontSize: 7, fontFamily: 'var(--mono)', fontWeight: 700, color: s.is_vip ? '#050507' : '#fff', zIndex: 5 }}>
+            👀 ZONE DE SURVEILLANCE
+          </div>
+        ) : !closed && s.status === 'tp1_hit' ? (
+          <div style={{ position: 'absolute', top: 0, left: 0, background: 'rgba(0, 255, 65, 0.16)', borderRight: '1px solid rgba(0, 255, 65, 0.3)', borderBottom: '1px solid rgba(0, 255, 65, 0.3)', padding: '3px 12px', borderRadius: '0 0 8px 0', fontSize: 8, fontFamily: 'var(--mono)', fontWeight: 800, color: 'var(--green)', zIndex: 5, letterSpacing: '0.05em', boxShadow: '0 2px 10px rgba(0, 255, 65, 0.15)' }}>
+            🎯 TP 1 TOUCHÉ !
+          </div>
+        ) : !closed && s.status === 'tp2_hit' ? (
+          <div style={{ position: 'absolute', top: 0, left: 0, background: 'rgba(0, 255, 65, 0.16)', borderRight: '1px solid rgba(0, 255, 65, 0.3)', borderBottom: '1px solid rgba(0, 255, 65, 0.3)', padding: '3px 12px', borderRadius: '0 0 8px 0', fontSize: 8, fontFamily: 'var(--mono)', fontWeight: 800, color: 'var(--green)', zIndex: 5, letterSpacing: '0.05em', boxShadow: '0 2px 10px rgba(0, 255, 65, 0.15)' }}>
+            🎯 TP 2 TOUCHÉ !
+          </div>
+        ) : !closed && isJustActivated ? (
+          <div style={{ position: 'absolute', top: 0, left: 0, background: s.is_vip ? '#FFD60A' : 'var(--amber)', padding: '3px 12px', borderRadius: '0 0 8px 0', fontSize: 8, fontFamily: 'var(--mono)', fontWeight: 800, color: '#000', zIndex: 5, letterSpacing: '0.05em' }}>
+            ⚡ GO NOW !
+          </div>
+        ) : !closed ? (
+          <div style={{ position: 'absolute', top: 0, left: 0, background: s.is_vip ? '#FFD60A' : 'rgba(255,255,255,0.08)', padding: '3px 10px', borderRadius: '0 0 8px 0', fontSize: 7, fontFamily: 'var(--mono)', fontWeight: 700, color: s.is_vip ? '#050507' : 'rgba(255,255,255,0.7)', zIndex: 5 }}>
+            📈 EN COURS
+          </div>
+        ) : null}
+
+        <div className="card-top" style={{ marginTop: !closed ? 14 : 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <span className="card-pair">{s.pair || s.asset || 'ASSET'}</span>
+            {isLockedVip ? (
+              <span className="type-badge" style={{ background: 'rgba(255,214,10,0.1)', color: '#FFD60A', border: '1px solid rgba(255,214,10,0.3)', fontFamily: 'var(--mono)', fontSize: '8px' }}>
+                🔒 VIP
+              </span>
+            ) : (
+              <span className={`type-badge ${up ? 'tb-buy' : 'tb-sell'}`}>
+                {up ? '▲ BUY' : '▼ SELL'}
+              </span>
+            )}
+            {s.is_vip ? (
+              <span className="vip-badge" style={{ background: 'rgba(255,214,10,0.1)', color: '#FFD60A', border: '1px solid rgba(255,214,10,0.3)' }}>VIP</span>
+            ) : (
+              <span className="vip-badge" style={{ background: 'rgba(0,255,65,0.1)', color: '#00FF41', border: '1px solid rgba(0,255,65,0.3)' }}>GRATUIT</span>
+            )}
+          </div>
+          {renderResultBadge(s)}
+        </div>
+
+        {s.is_vip && !canSeeVipSignals ? (
+          <>
+            <div style={{ position: 'relative', marginTop: 8, height: 100, overflow: 'hidden', borderRadius: 10 }}>
+              {/* Blurred Data */}
+              <div style={{ filter: 'blur(12px)', userSelect: 'none', pointerEvents: 'none', opacity: 0.85, transform: 'scale(0.85)', transformOrigin: 'center top' }}>
+                <div className="entry-hero">
+                  <div className="entry-price">{s.entry || (s.entry_low && s.entry_high ? `${s.entry_low} - ${s.entry_high}` : (s.entry_low || s.entry_high || 'À DÉFINIR'))}</div>
+                  <div className="entry-label">PRIX D'ENTRÉE</div>
+                </div>
+                <div className="card-bottom">
+                  <div className="levels">
+                    <div className="lvl"><span className="lvl-label" style={{ color: 'rgba(255,59,48,0.5)' }}>SL</span><span className="lvl-val lvl-sl" style={{ color: 'var(--red)' }}>{s.sl || '—'}</span></div>
+                    <div className="lvl-sep" />
+                    <div style={{ display: 'flex', flexDirection: 'row', gap: 12 }}>
+                      {(s.tp || '').split(',').map((val, idx) => (
+                        <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                          <span className="lvl-label" style={{ color: 'rgba(0,255,65,0.5)' }}>TP{idx > 0 ? idx + 1 : ''}</span>
+                          <span className="lvl-val lvl-tp" style={{ color: 'var(--green)' }}>{val.trim() || '—'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {/* Lock Overlay */}
+              <div style={{ position: 'absolute', inset: 0, background: 'rgba(8,11,20,0.18)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                  <span style={{ fontSize: '22px' }}>🔐</span>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: '13px', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.95)', fontWeight: 700 }}>
+                    SIGNAL VIP
+                  </span>
+                </div>
+                <button onClick={() => setIsVipModalOpen(true)} style={{ fontFamily: 'var(--mono)', fontSize: '11px', padding: '8px 20px', borderRadius: '24px', background: 'rgba(255,214,10,0.16)', border: '1px solid rgba(255,214,10,0.4)', color: '#FFD60A', cursor: 'pointer', letterSpacing: '0.05em', fontWeight: 800, transition: 'all 0.2s' }}>
+                  DÉBLOQUER L'ACCÈS
+                </button>
+              </div>
+            </div>
+            {/* Card Meta (Always Visible) */}
+            <div className="card-meta" style={{ marginTop: 10 }}>
+              {calculatedRR && <span className="rr-badge">R:R {calculatedRR}</span>}
+              <span className="card-time">
+                <Clock size={9} style={{ display: 'inline', marginRight: 3 }} />
+                {fmt(s.created_at)}
+              </span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="entry-hero">
+              <div className="entry-price">{s.entry || (s.entry_low && s.entry_high ? `${s.entry_low} - ${s.entry_high}` : (s.entry_low || s.entry_high || 'À DÉFINIR'))}</div>
+              <div className="entry-label">PRIX D'ENTRÉE</div>
+            </div>
+
+            <div className="card-bottom">
+              <div className="levels">
+                <div className="lvl">
+                  <span className="lvl-label" style={{ color: 'rgba(255,59,48,0.5)' }}>SL</span>
+                  <span className="lvl-val lvl-sl" style={{ color: 'var(--red)' }}>{s.sl || '—'}</span>
+                </div>
+                <div className="lvl-sep" />
+                <div style={{ display: 'flex', flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+                  {(s.tp || '').split(',').map((val, idx) => {
+                    const tpNum = idx + 1;
+                    const isHit = 
+                      s.status === 'tp' ||
+                      (s.status === 'tp1_hit' && tpNum === 1) ||
+                      (s.status === 'tp2_hit' && tpNum <= 2);
+                    
+                    return (
+                      <div key={idx} style={{ 
+                        display: 'flex', 
+                        flexDirection: 'column', 
+                        gap: 1,
+                        position: 'relative',
+                        padding: isHit ? '2px 6px' : '0px',
+                        background: isHit ? 'rgba(0, 255, 65, 0.08)' : 'transparent',
+                        border: isHit ? '1px solid rgba(0, 255, 65, 0.3)' : 'none',
+                        borderRadius: 6,
+                        boxShadow: isHit ? '0 0 8px rgba(0, 255, 65, 0.12)' : 'none',
+                        transition: 'all 0.3s ease'
+                      }}>
+                        <span className="lvl-label" style={{ color: isHit ? 'var(--green)' : 'rgba(0,255,65,0.5)', display: 'flex', alignItems: 'center', gap: 2, fontWeight: isHit ? 800 : 500 }}>
+                          {isHit && <span style={{ fontSize: 7 }}>✓</span>}
+                          TP{idx > 0 ? idx + 1 : ''}
+                        </span>
+                        <span className="lvl-val lvl-tp" style={{ color: 'var(--green)', textDecoration: isHit ? 'line-through' : 'none', opacity: isHit ? 0.7 : 1 }}>
+                          {val.trim() || '—'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="card-meta">
+                {calculatedRR && <span className="rr-badge">R:R {calculatedRR}</span>}
+                <span className="card-time">
+                  <Clock size={9} style={{ display: 'inline', marginRight: 3 }} />
+                  {fmt(s.created_at)}
+                </span>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const getExpirationSeconds = (exp?: string): number => {
+    if (!exp) return 0;
+    const str = exp.trim().toUpperCase();
+    // Handle formats: "M5", "5M", "5 MIN", "M 5", "30S", "1H", etc.
+    const numFirst = str.match(/^(\d+)\s*([MHSD])/);
+    const unitFirst = str.match(/^([MHSD])\s*(\d+)/);
+    const match = numFirst || unitFirst;
+    if (!match) return 0;
+    const num = parseInt(numFirst ? match[1] : match[2]);
+    const unit = numFirst ? match[2] : match[1];
+    if (unit === 'M') return num * 60;
+    if (unit === 'H') return num * 3600;
+    if (unit === 'S') return num;
+    if (unit === 'D') return num * 86400;
+    return 0;
+  };
+
+  const renderBinaryCard = (s: Signal, isNew: boolean) => {
+    const up      = isUp(s);
+    const closed  = isClosed(s);
+    
+    const isLockedVip = s.is_vip && !canSeeVipSignals;
+    const dirClass = isLockedVip ? 'sig-vip-locked' : (up ? 'sig-call' : 'sig-put');
+    const cornerColor = isLockedVip ? '#FFD60A' : (up ? 'var(--green)' : 'var(--red)');
+    
+    const payPct  = s.payout_pct || 0;
+    const payColor = payPct >= 80 ? 'var(--green)' : payPct >= 70 ? 'var(--amber)' : 'var(--red)';
+    const isJustActivated = s.watch_activated_at && (new Date().getTime() - new Date(s.watch_activated_at).getTime() < 300000);
+
+    const baseSecs = getExpirationSeconds(s.expiration);
+    
+    // Parse the martingale metadata: e.g. "G2_G1_2026-05-17T16:30:00.000Z" or just "G2" or "G1" or "M0"
+    let mType = 'M0';
+    let galeStage = 0;
+    let galeActivatedAt: string | null = null;
+    
+    if (s.martingale) {
+      if (s.martingale.includes('_')) {
+        const parts = s.martingale.split('_');
+        const rawType = parts[0];
+        mType = rawType === 'M1' ? 'G1' : rawType === 'M2' ? 'G2' : rawType;
+        if (parts[1] === 'G1') galeStage = 1;
+        if (parts[1] === 'G2') galeStage = 2;
+        galeActivatedAt = parts[2];
+      } else {
+        const rawType = s.martingale;
+        mType = rawType === 'M1' ? 'G1' : rawType === 'M2' ? 'G2' : rawType;
+      }
+    }
+    
+    const hasMartingale = mType && mType !== 'M0';
+    const maxStages = mType === 'G1' ? 1 : mType === 'G2' ? 2 : 0;
+    const isFinalStage = galeStage === maxStages;
+    const martingaleMultiplier = maxStages + 1;
+    const currentStage = galeStage;
+
+    const startTimeStr = (galeStage > 0 && galeActivatedAt)
+      ? galeActivatedAt
+      : (s.watch_activated_at || s.created_at || s.timestamp || new Date().toISOString());
+      
+    const startTime = new Date(startTimeStr).getTime();
+    const elapsedSecs = Math.max(0, (now - startTime) / 1000);
+    const remainingInStage = Math.max(0, baseSecs - elapsedSecs);
+    const isTimerFinished = baseSecs > 0 && elapsedSecs >= baseSecs;
+
+    // Compute bar width directly from JS (no CSS animation) for perfect sync with countdown
+    let timerStyle: React.CSSProperties = { width: `${payPct}%`, background: payColor, transition: 'width 1s linear' };
+
+    if (!closed && baseSecs > 0) {
+      if (!isTimerFinished) {
+        const barPct = (remainingInStage / baseSecs) * 100;
+        timerStyle = { width: `${barPct}%`, background: payColor, transition: 'width 1s linear' };
+      } else {
+        timerStyle = { width: '0%', background: payColor };
+      }
+    } else if (closed) {
+      timerStyle = { width: '0%', background: payColor };
+    }
+
+    const activeClass = closed ? '' : ((s.is_vip || isJustActivated) ? 'is-vip-active' : (up ? 'is-buy-active' : 'is-sell-active'));
+
+    return (
+      <div key={s.id} className={`sig-card ${dirClass} ${activeClass}`} style={{ 
+        opacity: closed ? 0.6 : 1,
+      }}>
+        <div className="corner c-tl" style={{ borderColor: cornerColor }} />
+        <div className="corner c-tr" style={{ borderColor: cornerColor }} />
+        <div className="corner c-bl" style={{ borderColor: cornerColor }} />
+        <div className="corner c-br" style={{ borderColor: cornerColor }} />
+
+        {!closed && isTimerFinished ? (
+          <div style={{ 
+            position: 'absolute', top: 0, left: 0, 
+            background: isFinalStage ? 'rgba(255,255,255,0.08)' : 'rgba(245,158,11,0.2)', 
+            border: isFinalStage ? 'none' : '1px solid rgba(245,158,11,0.4)',
+            padding: '3px 12px', borderRadius: '0 0 8px 0', fontSize: 8, fontFamily: 'var(--mono)', fontWeight: 800, 
+            color: isFinalStage ? 'rgba(255,255,255,0.6)' : '#F59E0B', zIndex: 5, letterSpacing: '0.05em' 
           }}>
-            Accès en cours de validation · Sous 24h
+            {isFinalStage ? '⏳ VÉRIFICATION EN COURS' : `⏳ ATTENTE GALE ${galeStage + 1}`}
+          </div>
+        ) : !closed && hasMartingale && currentStage === 2 ? (
+          <div style={{ position: 'absolute', top: 0, left: 0, background: 'linear-gradient(90deg,#F43F5E,#C084FC)', padding: '3px 12px', borderRadius: '0 0 8px 0', fontSize: 8, fontFamily: 'var(--mono)', fontWeight: 800, color: '#fff', zIndex: 5, letterSpacing: '0.05em' }}>
+            🚨 GALE 2 EN COURS
+          </div>
+        ) : !closed && hasMartingale && currentStage === 1 ? (
+          <div style={{ position: 'absolute', top: 0, left: 0, background: 'rgba(192,132,252,0.2)', border: '1px solid rgba(192,132,252,0.4)', padding: '3px 12px', borderRadius: '0 0 8px 0', fontSize: 8, fontFamily: 'var(--mono)', fontWeight: 800, color: '#C084FC', zIndex: 5, letterSpacing: '0.05em' }}>
+            ⚠️ GALE 1 EN COURS
+          </div>
+        ) : (s.is_vip || isJustActivated) && !closed ? (
+          <div style={{ position: 'absolute', top: 0, left: 0, background: '#FFD60A', padding: '3px 12px', borderRadius: '0 0 8px 0', fontSize: 8, fontFamily: 'var(--mono)', fontWeight: 800, color: '#000', zIndex: 5, letterSpacing: '0.05em' }}>
+            ⚡ GO NOW !
+          </div>
+        ) : !closed ? (
+          <div style={{ position: 'absolute', top: 0, left: 0, background: 'rgba(0,255,136,0.12)', padding: '3px 12px', borderRadius: '0 0 8px 0', fontSize: 8, fontFamily: 'var(--mono)', fontWeight: 800, color: 'var(--green)', zIndex: 5, letterSpacing: '0.05em' }}>
+            🔥 TRADE INITIAL
+          </div>
+        ) : isNew && !closed && (
+          <div style={{ position: 'absolute', top: 0, left: 0, background: isLockedVip ? '#FFD60A' : '#0098EA', padding: '3px 10px', borderRadius: '0 0 8px 0', fontSize: 7, fontFamily: 'var(--mono)', fontWeight: 700, color: isLockedVip ? '#050507' : '#fff', zIndex: 5 }}>
+            NOUVEAU
           </div>
         )}
 
-      <section className="space-y-2">
-        <div className="flex items-center justify-between">
-          <TechHeader title={t('live.real_time')} count={displayedSignals.length} />
-          {liveSignals.length > 0 && features.hasAnalytics && (
-            <button
-              onClick={() => setShowStatsModal(!showStatsModal)}
-              className={`flex items-center gap-1 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full transition-all active:scale-95 whitespace-nowrap ${
-                 showStatsModal 
-                   ? 'text-text-inverse bg-accent-emerald shadow-card' 
-                   : 'text-accent-emerald border border-accent-emerald/20 bg-accent-emerald-dim hover:bg-accent-emerald/10'
-              }`}
-            >
-              <BarChart3 size={10} /> {t('dashboard.stats_trader')}
-            </button>
-          )}
+        <div className="card-top" style={{ marginTop: (!closed && (isTimerFinished || s.is_vip || isJustActivated || isNew)) ? 14 : 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <span className="card-pair">{s.pair || s.asset || 'ASSET'}</span>
+            {isLockedVip ? (
+              <span className="type-badge" style={{ background: 'rgba(255,214,10,0.1)', color: '#FFD60A', border: '1px solid rgba(255,214,10,0.3)', fontFamily: 'var(--mono)', fontSize: '8px' }}>
+                🔒 VIP
+              </span>
+            ) : (
+              <span className={`type-badge ${up ? 'tb-call' : 'tb-put'}`}>
+                {up ? '▲ CALL' : '▼ PUT'}
+              </span>
+            )}
+            {s.is_vip ? (
+              <span className="vip-badge" style={{ background: 'rgba(255,214,10,0.1)', color: '#FFD60A', border: '1px solid rgba(255,214,10,0.3)' }}>VIP</span>
+            ) : (
+              <span className="vip-badge" style={{ background: 'rgba(0,255,65,0.1)', color: '#00FF41', border: '1px solid rgba(0,255,65,0.3)' }}>GRATUIT</span>
+            )}
+          </div>
+          {renderResultBadge(s)}
         </div>
 
-        {showStatsModal && (() => {
-          const total = liveSignals.length;
-          const tpHit = liveSignals.filter(s => s.status === 'TP_HIT').length;
-          const slHit = liveSignals.filter(s => s.status === 'SL_HIT').length;
-          const liveNow = liveSignals.filter(s => s.status === 'LIVE').length;
-          const closed = tpHit + slHit;
-          const winRate = closed > 0 ? Math.round((tpHit / closed) * 100) : null;
-          const mentorName = tenantProfile?.mentor_name || config?.mentorName || 'Mentor';
+        {s.is_vip && !canSeeVipSignals ? (
+          <>
+            <div style={{ position: 'relative', marginTop: 8, height: 100, overflow: 'hidden', borderRadius: 10 }}>
+              <div style={{ filter: 'blur(12px)', userSelect: 'none', pointerEvents: 'none', opacity: 0.85, transform: 'scale(0.85)', transformOrigin: 'center top' }}>
+                <div className="binary-hero">
+                  <div className="b-stat">
+                    <div className="b-val" style={{ color: 'var(--amber)' }}>{s.expiration || '—'}</div>
+                    <div className="b-lbl">EXPIRATION</div>
+                  </div>
+                  <div className="b-stat" style={{ borderLeft: '1px solid var(--subtle)', borderRight: '1px solid var(--subtle)' }}>
+                    <div className="b-val" style={{ color: 'var(--green)' }}>{payPct ? `${payPct}%` : '—'}</div>
+                    <div className="b-lbl">PAYOUT</div>
+                  </div>
+                  {hasMartingale ? (
+                    <>
+                      <div className="b-stat" style={{ borderRight: '1px solid var(--subtle)' }}>
+                        <div className="b-val" style={{ color: '#fff' }}>{s.entry || 'MKT'}</div>
+                        <div className="b-lbl">ENTRÉE</div>
+                      </div>
+                      <div className="b-stat">
+                        <div className="b-val" style={{ 
+                          color: mType === 'G2' ? '#F43F5E' : '#C084FC',
+                          textShadow: mType === 'G2' ? '0 0 10px rgba(244,63,94,0.3)' : '0 0 10px rgba(192,132,252,0.3)'
+                        }}>
+                          {mType}
+                        </div>
+                        <div className="b-lbl">MARTINGALE</div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="b-stat">
+                      <div className="b-val" style={{ color: '#fff' }}>{s.entry || 'MKT'}</div>
+                      <div className="b-lbl">ENTRÉE</div>
+                    </div>
+                  )}
+                </div>
 
-          return (
-            <div className="animate-in slide-in-from-top-2 fade-in duration-300 mt-2 bg-bg-elevated border border-border-subtle rounded-[16px] p-4">
-              <div className="flex justify-between items-center mb-4">
-                <div>
-                  <p className="text-[8px] text-accent-emerald uppercase tracking-[0.3em] font-bold mb-0.5">{t('dashboard.performance')}</p>
-                  <h3 className="text-sm font-black uppercase tracking-tight text-text-primary">{mentorName}</h3>
+                <div className="payout-bar-bg">
+                  <div className="payout-bar-fill" style={timerStyle} />
                 </div>
               </div>
-
-              {winRate !== null && (
-                <div className="mb-4 p-3 bg-bg-surface border border-border-subtle rounded-xl space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="text-[9px] font-bold uppercase tracking-widest text-text-secondary">{t('dashboard.win_rate')}</span>
-                    <span className="text-base font-black font-mono" style={{ color: winRate >= 60 ? 'var(--accent-emerald)' : 'var(--accent-gold)' }}>{winRate}%</span>
+              
+              <div style={{ position: 'absolute', inset: 0, background: 'rgba(8,11,20,0.18)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                  <span style={{ fontSize: '22px' }}>🔐</span>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: '13px', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.95)', fontWeight: 700 }}>
+                    SIGNAL VIP
+                  </span>
+                </div>
+                <button onClick={() => setIsVipModalOpen(true)} style={{ fontFamily: 'var(--mono)', fontSize: '11px', padding: '8px 20px', borderRadius: '24px', background: 'rgba(255,214,10,0.16)', border: '1px solid rgba(255,214,10,0.4)', color: '#FFD60A', cursor: 'pointer', letterSpacing: '0.05em', fontWeight: 800, transition: 'all 0.2s' }}>
+                  DÉBLOQUER L'ACCÈS
+                </button>
+              </div>
+            </div>
+            {/* Card Meta (Always Visible) */}
+            <div className="card-meta" style={{ marginTop: 10 }}>
+              <span className="card-time">
+                <Clock size={9} style={{ display: 'inline', marginRight: 3 }} />
+                {fmt(s.created_at)}
+              </span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="binary-hero">
+              <div className="b-stat">
+                <div className="b-val" style={{ color: 'var(--amber)' }}>{s.expiration || '—'}</div>
+                <div className="b-lbl">EXPIRATION</div>
+              </div>
+              <div className="b-stat" style={{ borderLeft: '1px solid var(--subtle)', borderRight: '1px solid var(--subtle)' }}>
+                <div className="b-val" style={{ color: 'var(--green)' }}>{payPct ? `${payPct}%` : '—'}</div>
+                <div className="b-lbl">PAYOUT</div>
+              </div>
+              {hasMartingale ? (
+                <>
+                  <div className="b-stat" style={{ borderRight: '1px solid var(--subtle)' }}>
+                    <div className="b-val" style={{ color: '#fff', fontSize: 15 }}>
+                      {s.entry_low || s.entry_high || s.entry
+                        ? (s.entry_low || s.entry_high || s.entry)
+                        : fmt(s.watch_activated_at || s.created_at)}
+                    </div>
+                    <div className="b-lbl">{s.entry_low || s.entry_high || s.entry ? 'HEURE / PRIX' : 'HEURE D\'ENTRÉE'}</div>
                   </div>
-                  <div className="h-2 bg-bg-surface rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-1000"
-                      style={{ width: `${winRate}%`, background: winRate >= 60 ? 'var(--accent-emerald)' : 'var(--accent-gold)' }}
-                    />
+                  <div className="b-stat">
+                    <div className="b-val" style={{ 
+                      color: mType === 'G2' ? '#F43F5E' : '#C084FC',
+                      textShadow: mType === 'G2' ? '0 0 10px rgba(244,63,94,0.3)' : '0 0 10px rgba(192,132,252,0.3)'
+                    }}>
+                      {mType}
+                    </div>
+                    <div className="b-lbl">MARTINGALE</div>
                   </div>
-                  <p className="text-[8px] text-text-secondary text-right">{t('dashboard.winners_losers', { winners: tpHit, losers: slHit })}</p>
+                </>
+              ) : (
+                <div className="b-stat">
+                  <div className="b-val" style={{ color: '#fff', fontSize: 15 }}>
+                    {s.entry_low || s.entry_high || s.entry
+                      ? (s.entry_low || s.entry_high || s.entry)
+                      : fmt(s.watch_activated_at || s.created_at)}
+                  </div>
+                  <div className="b-lbl">{s.entry_low || s.entry_high || s.entry ? 'HEURE / PRIX' : 'HEURE D\'ENTRÉE'}</div>
                 </div>
               )}
-
-              <div className="grid grid-cols-2 gap-2 mb-3">
-                {[
-                  { label: t('dashboard.total_signals'), value: total, icon: Send, accent: false },
-                  { label: t('dashboard.live_now_count'), value: liveNow, icon: Activity, accent: true },
-                  { label: t('dashboard.tp_hit_count'), value: tpHit, icon: TrendingUp, accent: true },
-                  { label: t('dashboard.sl_hit_count'), value: slHit, icon: TrendingDown, accent: false },
-                  { label: t('dashboard.closed_count'), value: closed, icon: CheckCircle, accent: false },
-                  { label: t('dashboard.live_active_count'), value: `${liveNow}/${total}`, icon: Zap, accent: true },
-                ].map((s, i) => (
-                  <div key={i} className="bg-bg-elevated border border-border-subtle rounded-lg p-2.5 flex flex-col gap-1">
-                    <s.icon size={11} className={s.accent ? 'text-accent-neon opacity-60' : 'text-text-muted'} />
-                    <p className={`text-lg font-black font-mono leading-none ${s.accent ? 'text-accent-neon' : 'text-text-primary'}`}>{s.value}</p>
-                    <p className="text-[7px] text-text-secondary uppercase tracking-widest">{s.label}</p>
-                  </div>
-                ))}
-              </div>
             </div>
-          );
-        })()}
 
-        <div className="grid gap-2">
-          {displayedSignals.length === 0 ? (
-            <GlassCard className="p-4 text-center border-dashed border-border-subtle">
-              <Target size={40} className="mx-auto text-text-muted mb-4" />
-              <p className="text-xs font-bold uppercase tracking-[0.15em] text-text-secondary">{t('dashboard.no_signals')}</p>
-            </GlassCard>
-          ) : displayedSignals.map((item) => {
-             if (item.isHeader) {
-               return (
-                 <div key={item.id} className="flex items-center gap-2 mt-4 mb-1">
-                   <div className={`h-[1px] flex-1 ${item.label.includes('⚡') ? 'bg-accent-warning/30' : 'bg-bg-elevated'}`} />
-                   <span className={`text-[9px] font-bold uppercase tracking-[0.2em] px-2 ${
-                     item.label.includes('⚡') ? 'text-accent-warning animate-pulse' :
-                     item.label === 'EN COURS (LIVE)' ? 'text-accent-neon animate-pulse' : 'text-text-secondary'
-                   }`}>{item.label}</span>
-                   <div className={`h-[1px] flex-1 ${item.label.includes('⚡') ? 'bg-accent-warning/30' : 'bg-bg-elevated'}`} />
-                 </div>
-               );
-            }
+            <div className="payout-bar-bg">
+              <div key={`timer-${s.id}-${currentStage}`} className="payout-bar-fill" style={timerStyle} />
+            </div>
 
-            const signal = item;
-            const isLocked = signal.isVip && !canAccessSignalsStatus;
-            
-            return (
-              <React.Fragment key={signal.id}>
-                <div className={`relative signal-card p-[1px] rounded-2xl overflow-hidden transition-all duration-300 ${signal.isVip ? 'bg-gradient-to-r from-accent-gold/30 to-transparent' : signal.type === 'BUY' ? 'bg-gradient-to-r from-accent-emerald/30 to-transparent' : 'bg-gradient-to-r from-accent-red/30 to-transparent'}`}>
-                  <GlassCard className={`relative !p-0 !bg-bg-card border-none overflow-hidden ${isLocked ? 'border-accent-gold-dim' : 'border-border-subtle'}`}>
-                    <div className={`absolute left-0 top-0 bottom-0 w-[3px] rounded-full z-10 ${signal.isVip ? 'bg-accent-gold shadow-card' : signal.type === 'BUY' ? 'bg-accent-emerald shadow-card' : 'bg-accent-red shadow-card'}`} />
-                    
-                    <div className="p-4 space-y-3">
-                      <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs font-black font-mono tracking-tighter text-text-primary">
-                            {signal.pair}
-                          </span>
-                          <span className={`px-2 py-0.5 text-[8px] font-bold uppercase tracking-widest rounded-md border ${isLocked ? 'bg-bg-surface text-text-muted border-border-subtle blur-[4px] select-none' : signal.type === 'BUY' ? 'badge-buy' : 'badge-sell'}`}>
-                            {isLocked ? 'XXXX' : signal.type}
-                          </span>
-                          {signal.isVip ? (
-                             <span className="text-[8px] font-bold text-accent-gold bg-accent-gold/10 px-1.5 py-0.5 rounded border border-border-subtle font-mono tracking-wider">VIP</span>
-                          ) : (
-                           <span className="text-[8px] font-bold text-accent-emerald bg-accent-emerald-dim px-1.5 py-0.5 rounded border border-border-subtle font-mono tracking-wider">{t('dashboard.free_label')}</span>
-                          )}
-                        </div>
-                        
-                        <div className="flex items-center gap-2">
-                          {signal.status === 'WATCH' ? (
-                            <div className={`px-2 py-1 rounded-lg border ${signal.isVip ? 'bg-accent-gold/10 border-accent-gold/30' : 'bg-accent-emerald/10 border-accent-emerald/30'}`}>
-                              <span className="text-[9px] font-black uppercase tracking-widest animate-pulse text-accent-emerald">{t('dashboard.trade_imminent')}</span>
-                            </div>
-                          ) : signal.status === 'LIVE' ? (
-                            <div className="flex items-center gap-1.5 text-accent-emerald font-mono text-[9px] font-bold">
-                              <div className="w-1.5 h-1.5 rounded-full bg-accent-emerald pulse-live" />
-                              {t('dashboard.live_status')}
-                            </div>
-                          ) : (
-                            <div className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono border ${signal.status === 'TP_HIT' ? 'bg-accent-emerald/10 text-accent-emerald border-accent-emerald/20' : 'bg-accent-red/10 text-accent-red border-accent-red/20'}`}>
-                              {signal.status === 'TP_HIT' ? `✅ TP HIT +${signal.pipsGain}` : `❌ SL HIT -${signal.pipsGain || 0}`}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div style={{ position: 'relative' }}>
-                        <div style={{ filter: isLocked ? 'blur(10px)' : 'none' }}>
-                          <div className="text-base font-black font-mono text-text-primary tracking-tighter leading-none">
-                            {isLocked ? '0.00000' : signal.entry}
-                          </div>
-                          <div className="text-[9px] font-bold text-text-muted tracking-[0.2em] mt-1 font-mono uppercase">{signal.status === 'WATCH' ? t('dashboard.watch_zone') : t('dashboard.entry_price')}</div>
-                        </div>
-
-                        <div className="relative card-bottom transition-all duration-300 pt-3 border-t border-border-subtle flex items-end justify-between">
-                          <div className="flex items-center gap-2" style={{ filter: isLocked ? 'blur(8px)' : 'none' }}>
-                            <div className="flex flex-col gap-0.5">
-                              <span className="text-[8px] font-bold text-text-muted font-mono tracking-widest">SL</span>
-                              <span className="text-xs font-bold text-accent-danger font-mono">{signal.sl}</span>
-                            </div>
-                            <div className="w-[1px] h-6 bg-bg-surface" />
-                            <div className="flex flex-col gap-0.5">
-                              <span className="text-[8px] font-bold text-text-muted font-mono tracking-widest">TP1</span>
-                              <span className="text-xs font-bold text-accent-neon font-mono">{signal.tp1}</span>
-                            </div>
-                          </div>
-
-                          <div className="flex flex-col items-end gap-1">
-                            <div className="px-2 py-0.5 rounded-md bg-bg-surface border border-border-subtle text-[9px] font-bold text-text-muted font-mono">
-                               R:R 1:{signal.rr || '2.0'}
-                            </div>
-                            <div className="text-[9px] text-text-muted font-mono uppercase tracking-wider">
-                              {getRelativeTime(signal.updatedAt || signal.timestamp)}
-                            </div>
-                          </div>
-                        </div>
-
-                        {isLocked && (
-                          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/30 backdrop-blur-sm rounded-lg">
-                            <span className="text-accent-gold font-black text-[11px]">{t('live.vip_signal')}</span>
-                            <button onClick={() => setShowVipModal(true)} className="bg-accent-gold/10 border border-accent-gold/30 text-accent-gold px-3 py-1 rounded-full text-[9px] font-bold">
-                              {t('live.unlock')}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      {signal.resultImage && !isLocked && (
-                        <div className="grid grid-cols-3 gap-2 mt-4">
-                          {signal.resultImage.split('||').filter(Boolean).map((imgUrl: string, idx: number) => (
-                            <button 
-                              key={idx} 
-                              className="rounded-xl overflow-hidden border border-border-subtle aspect-square w-full"
-                              onClick={() => setSelectedImage(imgUrl)}
-                            >
-                              <img src={imgUrl} alt="Result" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                            </button>
-                          ))}
-                        </div>
-                      )}
+            {hasMartingale && (
+              <div style={{ display: 'flex', gap: 4, marginTop: 6, justifyContent: 'center' }}>
+                {[0, 1, 2].slice(0, martingaleMultiplier).map(stage => {
+                  const stageLabels = ['INITIAL', 'GALE 1', 'GALE 2'];
+                  const stageColors = ['var(--green)', '#C084FC', '#F43F5E'];
+                  const isActive = stage === currentStage;
+                  const isPast = stage < currentStage;
+                  return (
+                    <div key={stage} style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '2px 8px', borderRadius: 20, background: isActive ? `${stageColors[stage]}22` : 'rgba(255,255,255,0.04)', border: `1px solid ${isActive ? stageColors[stage] : (isPast ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.04)')}`, opacity: isPast ? 0.4 : 1, transition: 'all 0.3s' }}>
+                      <div style={{ width: 5, height: 5, borderRadius: '50%', background: isActive ? stageColors[stage] : 'rgba(255,255,255,0.2)', boxShadow: isActive ? `0 0 6px ${stageColors[stage]}` : 'none' }} />
+                      <span style={{ fontFamily: 'var(--mono)', fontSize: 7, fontWeight: 700, color: isActive ? stageColors[stage] : 'rgba(255,255,255,0.3)', letterSpacing: '0.05em' }}>{stageLabels[stage]}</span>
                     </div>
-                  </GlassCard>
+                  );
+                })}
+              </div>
+            )}
+
+            {!closed && baseSecs > 0 && (() => {
+              const mm = Math.floor(remainingInStage / 60).toString().padStart(2, '0');
+              const ss = Math.floor(remainingInStage % 60).toString().padStart(2, '0');
+              const stageColors = ['var(--green)', '#C084FC', '#F43F5E'];
+              const timerColor = stageColors[Math.min(currentStage, 2)];
+              return (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 20, fontWeight: 800, color: isTimerFinished ? 'rgba(255,255,255,0.2)' : timerColor, letterSpacing: '0.1em', textShadow: isTimerFinished ? 'none' : `0 0 12px ${timerColor}` }}>
+                    {mm}:{ss}
+                  </span>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 8, color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>
+                    {isTimerFinished ? 'temps écoulé' : 'restant'}
+                  </span>
                 </div>
-                
-                {index === 2 && !isVipUser && (
-                  <div className="neon-border glass-card p-3 space-y-2 relative overflow-hidden">
-                    <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-r from-accent-emerald/10 to-transparent pointer-events-none" />
-                    <p className="text-xs font-bold leading-relaxed">Pas encore de compte ? Ouvre ton compte {config?.broker1Name}/{config?.broker2Name} en 5 min.</p>
-                    <button 
-                      onClick={() => window.open(config?.broker1Url || '#', '_blank')}
-                      className="w-full py-3 bg-accent-emerald text-bg-base font-bold rounded-lg text-xs pulse-live"
+              );
+            })()}
+
+            {/* Quick Actions Panel for Admins (appears premium and only when timer ends) */}
+            {isAdmin && !closed && isTimerFinished && (
+              <>
+                <style>{`
+                  @keyframes admin-slide-in {
+                    from { opacity: 0; transform: translateY(8px); }
+                    to { opacity: 1; transform: translateY(0); }
+                  }
+                `}</style>
+                <div 
+                  className="admin-decision-drawer"
+                  style={{
+                    marginTop: 12,
+                    padding: '10px 14px',
+                    background: 'linear-gradient(135deg, rgba(20,20,25,0.9) 0%, rgba(10,10,12,0.98) 100%)',
+                    backdropFilter: 'blur(10px)',
+                    borderRadius: '10px',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                    alignItems: 'stretch',
+                    justifyContent: 'center',
+                    animation: 'admin-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: 6 }}>
+                    <span style={{ fontSize: 7, fontFamily: 'var(--mono)', color: 'rgba(255,255,255,0.3)', fontWeight: 800, letterSpacing: '0.1em' }}>
+                      DÉCISION REQUISE (STAGE {galeStage + 1})
+                    </span>
+                    <span style={{ fontSize: 6, padding: '2px 6px', borderRadius: 4, background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.5)', fontFamily: 'var(--mono)' }}>
+                      MENTOR PANEL
+                    </span>
+                  </div>
+                  
+                  <div style={{ display: 'flex', gap: 8, width: '100%' }}>
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        const winningStage = galeStage === 0 ? 'DIRECT' : `G${galeStage}`;
+                        optimisticUpdate(s.id, { status: 'tp', rr: winningStage });
+                        try {
+                          const { error } = await supabase
+                            .from('signals')
+                            .update({ status: 'tp', rr: winningStage })
+                            .eq('id', s.id);
+                          if (error) throw error;
+                        } catch (err) {
+                          console.error("Error setting TP:", err);
+                        }
+                      }}
+                      style={{
+                        flex: 1,
+                        background: 'rgba(0, 255, 136, 0.03)',
+                        border: '1px solid rgba(0, 255, 136, 0.25)',
+                        color: 'var(--green)',
+                        fontFamily: 'var(--mono)',
+                        fontSize: 8,
+                        fontWeight: 800,
+                        letterSpacing: '0.05em',
+                        padding: '8px 10px',
+                        borderRadius: 6,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        boxShadow: '0 2px 10px rgba(0, 255, 136, 0.05)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 4
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(0, 255, 136, 0.08)';
+                        e.currentTarget.style.border = '1px solid rgba(0, 255, 136, 0.4)';
+                        e.currentTarget.style.boxShadow = '0 4px 15px rgba(0, 255, 136, 0.15)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'rgba(0, 255, 136, 0.03)';
+                        e.currentTarget.style.border = '1px solid rgba(0, 255, 136, 0.25)';
+                        e.currentTarget.style.boxShadow = '0 2px 10px rgba(0, 255, 136, 0.05)';
+                      }}
                     >
-                      OUVRIR UN COMPTE →
+                      🟢 WIN {galeStage > 0 ? `(G${galeStage})` : '(DIRECT)'}
                     </button>
+
+                    {galeStage < maxStages ? (
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const nextStage = galeStage + 1;
+                          const nextMartingale = `${mType}_G${nextStage}_${new Date().toISOString()}`;
+                          const nowIso = new Date().toISOString();
+                          
+                          optimisticUpdate(s.id, {
+                            martingale: nextMartingale,
+                            watch_activated_at: nowIso
+                          });
+
+                          try {
+                            const { error } = await supabase
+                              .from('signals')
+                              .update({ 
+                                martingale: nextMartingale,
+                                watch_activated_at: nowIso
+                              })
+                              .eq('id', s.id);
+                            if (error) throw error;
+                          } catch (err) {
+                            console.error("Error launching Gale:", err);
+                          }
+                        }}
+                        style={{
+                          flex: 1,
+                          background: 'rgba(192, 132, 252, 0.03)',
+                          border: '1px solid rgba(192, 132, 252, 0.25)',
+                          color: '#C084FC',
+                          fontFamily: 'var(--mono)',
+                          fontSize: 8,
+                          fontWeight: 800,
+                          letterSpacing: '0.05em',
+                          padding: '8px 10px',
+                          borderRadius: 6,
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          boxShadow: '0 2px 10px rgba(192, 132, 252, 0.05)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 4
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(192, 132, 252, 0.08)';
+                          e.currentTarget.style.border = '1px solid rgba(192, 132, 252, 0.4)';
+                          e.currentTarget.style.boxShadow = '0 4px 15px rgba(192, 132, 252, 0.15)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'rgba(192, 132, 252, 0.03)';
+                          e.currentTarget.style.border = '1px solid rgba(192, 132, 252, 0.25)';
+                          e.currentTarget.style.boxShadow = '0 2px 10px rgba(192, 132, 252, 0.05)';
+                        }}
+                      >
+                        🔮 ENTRER GALE {galeStage + 1}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          optimisticUpdate(s.id, { status: 'sl' });
+                          try {
+                            const { error } = await supabase
+                              .from('signals')
+                              .update({ status: 'sl' })
+                              .eq('id', s.id);
+                            if (error) throw error;
+                          } catch (err) {
+                            console.error("Error setting SL:", err);
+                          }
+                        }}
+                        style={{
+                          flex: 1,
+                          background: 'rgba(255, 59, 92, 0.03)',
+                          border: '1px solid rgba(255, 59, 92, 0.25)',
+                          color: 'var(--red)',
+                          fontFamily: 'var(--mono)',
+                          fontSize: 8,
+                          fontWeight: 800,
+                          letterSpacing: '0.05em',
+                          padding: '8px 10px',
+                          borderRadius: 6,
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          boxShadow: '0 2px 10px rgba(255, 59, 92, 0.05)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 4
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(255, 59, 92, 0.08)';
+                          e.currentTarget.style.border = '1px solid rgba(255, 59, 92, 0.4)';
+                          e.currentTarget.style.boxShadow = '0 4px 15px rgba(255, 59, 92, 0.15)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'rgba(255, 59, 92, 0.03)';
+                          e.currentTarget.style.border = '1px solid rgba(255, 59, 92, 0.25)';
+                          e.currentTarget.style.boxShadow = '0 2px 10px rgba(255, 59, 92, 0.05)';
+                        }}
+                      >
+                        🔴 LOSS
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="card-bottom" style={{ marginTop: 8 }}>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--green)' }}>
+                {payPct ? `Gain potentiel : +${payPct}%` : ''}
+              </span>
+              <span className="card-time">
+                <Clock size={9} style={{ display: 'inline', marginRight: 3 }} />
+                {fmt(s.created_at)}
+              </span>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ background: 'var(--bg)', minHeight: '100vh', paddingBottom: 96 }}>
+      <div className="ticker">
+        {TICKERS.map(t => (
+          <div key={t.pair} className="tick-item">
+            <span className="tick-pair">{t.pair}</span>
+            <span className="tick-price">{t.price}</span>
+            <span className={`tick-arrow ${t.up ? 'tick-up' : 'tick-down'}`}>{t.arrow}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* ─── ZONE LIVE & ALERTES ────────────────────── */}
+      {(!isOverallLoading && (liveSignals.length > 0 || watchSignals.length > 0)) && (
+        <div style={{ padding: '0 14px', marginBottom: 10 }}>
+          <div className="section-hdr" style={{ padding: '14px 0 10px' }}>
+            <div className="s-line" />
+            <span className="s-title">SIGNAUX EN TEMPS RÉEL</span>
+            <span className="s-count" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span className="live-dot" style={{ animation: 'pulse-glow 1.5s infinite', background: 'var(--green)' }} />
+              {liveSignals.length} ACTIF{liveSignals.length !== 1 ? 'S' : ''}
+            </span>
+          </div>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* 1. Watch Alerts always on top for maximum urgency */}
+            {watchSignals.length > 0 && (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0 6px' }}>
+                  <div style={{ height: 1, flex: 1, background: 'rgba(255,178,0,0.2)' }} />
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.18em', color: 'var(--amber)', fontWeight: 700, whiteSpace: 'nowrap', textShadow: '0 0 8px rgba(255,214,10,0.3)' }}>⏳ EN SURVEILLANCE — {watchSignals.length} ZONE{watchSignals.length > 1 ? 'S' : ''}</span>
+                  <div style={{ height: 1, flex: 1, background: 'rgba(255,178,0,0.2)' }} />
+                </div>
+                {watchSignals.map(s => renderWatchCard(s))}
+              </>
+            )}
+
+            {/* 2. Live Active Signals underneath watch alerts */}
+            {liveSignals.length > 0 && (
+              <>
+                {watchSignals.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 0 6px' }}>
+                    <div style={{ height: 1, flex: 1, background: 'rgba(0,255,65,0.1)' }} />
+                    <span style={{ fontFamily: 'var(--mono)', fontSize: 8, letterSpacing: '0.15em', color: 'rgba(0,255,65,0.4)', whiteSpace: 'nowrap' }}>⚡ EN COURS (LIVE)</span>
+                    <div style={{ height: 1, flex: 1, background: 'rgba(0,255,65,0.1)' }} />
                   </div>
                 )}
-              </React.Fragment>
-            );
-          })}
+                {liveSignals.map(s => (
+                  isBin(s)
+                    ? renderBinaryCard(s, true)
+                    : renderForexCard(s, true)
+                ))}
+              </>
+            )}
+          </div>
         </div>
-      </section>
+      )}
 
-      <section className="space-y-3 mt-8">
-        <TechHeader title="Dernières Victoires" subtitle="History Feed" />
-        <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
-          {(() => {
-            const recentCaptures = victories
-              .flatMap(vic => 
-                (vic.resultImage ? vic.resultImage.split('||').filter(Boolean) : [])
-                .map(url => ({ id: `${vic.id}-${url}`, url, pair: vic.pair, pipsGain: vic.pipsGain }))
-              )
-              .slice(0, 3);
-              
-            if (recentCaptures.length > 0) {
-              return recentCaptures.map((capture) => (
-                <div key={capture.id} className="shrink-0 w-48 aspect-video rounded-xl overflow-hidden border border-border-subtle relative group bg-bg-elevated">
-                  <img src={capture.url} alt="Victory" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" referrerPolicy="no-referrer" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-bg-base/80 via-bg-base/20 to-transparent flex flex-col justify-end p-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-mono font-bold text-accent-emerald">{capture.pair}</span>
-                      <Badge variant="neon" className="text-[8px] py-0 px-1 border-border-subtle">+{capture.pipsGain || 0} PIPS</Badge>
-                    </div>
-                  </div>
-                </div>
-              ));
-            }
+      {/* ─── ZONE HISTORIQUE (TP/SL/ANNULÉ) ─────────── */}
+      <div style={{ paddingBottom: 30 }}>
+        {isOverallLoading ? (
+          <div style={{ textAlign: 'center', padding: '40px 0', opacity: 0.5, fontFamily: 'var(--mono)', fontSize: 10 }}>CHARGEMENT...</div>
+        ) : (liveSignals.length === 0 && watchSignals.length === 0 && historicalKeys.length === 0) ? (
+          <div style={{ textAlign: 'center', padding: '100px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <Activity size={32} style={{ opacity: 0.3, marginBottom: 16, color: 'var(--text-primary)' }} />
+            <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)', fontStyle: 'italic', marginBottom: 8 }}>
+              Aucun signal publié pour le moment.
+            </p>
+            {isAdmin && (
+              <p style={{ fontFamily: 'var(--mono)', fontSize: '10px', color: 'rgba(255,255,255,0.4)', marginTop: 8 }}>
+                Publiez votre premier signal dans Admin → Signaux
+              </p>
+            )}
+          </div>
+        ) : historicalKeys.length > 0 ? (
+          <>
+            <div className="section-hdr" style={{ padding: '16px 14px 10px' }}>
+              <div className="s-line" style={{ background: 'rgba(255,255,255,0.25)', boxShadow: 'none' }} />
+              <span className="s-title" style={{ color: 'rgba(255,255,255,0.3)' }}>HISTORIQUE DES SIGNAUX</span>
+            </div>
             
-            return (
-              <div className="shrink-0 w-full h-24 flex flex-col items-center justify-center border border-dashed border-border-subtle rounded-xl bg-bg-surface">
-                <ActivityIcon size={24} className="text-text-muted mb-2" />
-                <p className="text-[9px] text-text-secondary uppercase tracking-widest">Aucune capture disponible</p>
+            {historicalKeys.map(dateKey => (
+              <div key={dateKey}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 14px 8px' }}>
+                  <div style={{ height: '1px', flex: 1, background: 'rgba(255,255,255,0.06)' }} />
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: '9px', letterSpacing: '0.18em', color: 'rgba(255,255,255,0.25)', whiteSpace: 'nowrap' }}>
+                    {dateKey}
+                  </span>
+                  <div style={{ height: '1px', flex: 1, background: 'rgba(255,255,255,0.06)' }} />
+                </div>
+
+                <div style={{ padding: '0 14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {groupedHistorical[dateKey]
+                    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                    .map(signal => (
+                      isBin(signal) 
+                        ? renderBinaryCard(signal, false)
+                        : renderForexCard(signal, false)
+                    ))
+                  }
+                </div>
               </div>
-            );
-          })()}
-        </div>
-      </section>
-
-      {!isVipUser && currentUser?.status !== 'pending' && (
-        <div 
-          onClick={() => setShowVipModal(true)}
-          className="neon-border glass-card p-4 bg-accent-emerald-dim flex items-center justify-between cursor-pointer group mt-6"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-accent-emerald/20 flex items-center justify-center text-accent-emerald">
-              <Zap size={20} />
-            </div>
-            <div>
-              <p className="text-xs font-bold uppercase tracking-widest">Passer au VIP</p>
-              <p className="text-[10px] text-text-secondary">Débloquez tous les signaux & formations</p>
-            </div>
-          </div>
-          <ChevronDown size={18} className="-rotate-90 text-accent-emerald group-hover:translate-x-1 transition-transform" />
-        </div>
-      )}
-
-      {selectedImage && (
-        <div className="fixed inset-0 z-[500] bg-modal-bg backdrop-blur-3xl p-4 overflow-y-auto flex flex-col pt-10 pb-20 items-center justify-start">
-          <div className="relative max-w-4xl w-full flex flex-col items-center">
-            <div className="w-full flex justify-end mb-4">
-              <button 
-                onClick={() => setSelectedImage(null)} 
-                className="z-[600] p-3 bg-bg-elevated backdrop-blur-xl border border-border-subtle rounded-full text-text-primary hover:bg-bg-surface transition-all shadow-elevated cursor-pointer"
-              >
-                <X size={24} />
-              </button>
-            </div>
-            <img 
-              src={selectedImage} 
-              alt="Capture plein écran" 
-              className="max-w-full w-auto max-h-[85vh] object-contain rounded-2xl"
-              referrerPolicy="no-referrer"
-            />
-          </div>
-        </div>
-      )}
+            ))}
+          </>
+        ) : null}
       </div>
+      {isVipModalOpen && config && (
+        <VipModal
+          config={config}
+          triggerType="signals"
+          onClose={() => setIsVipModalOpen(false)}
+          onSuccess={() => setIsVipModalOpen(false)}
+        />
+      )}
     </div>
   );
 };

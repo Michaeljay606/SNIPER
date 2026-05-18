@@ -9,7 +9,7 @@ ALTER TABLE tenants
   ADD COLUMN IF NOT EXISTS plan text DEFAULT 'free'
     CHECK (plan IN ('free', 'basic', 'premium', 'empire', 'pause')),
   ADD COLUMN IF NOT EXISTS theme_color text DEFAULT '#00FF41',
-  ADD COLUMN IF NOT EXISTS onboarding_complete boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS onboarding_completed boolean DEFAULT false,
   ADD COLUMN IF NOT EXISTS max_members integer DEFAULT 50;
 
 -- 2. Branding & Content Columns (if missing)

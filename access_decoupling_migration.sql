@@ -74,6 +74,11 @@ JOIN affiliates a ON us.member_id = a.id AND us.tenant_id = a.tenant_id;
 ALTER TABLE user_subscriptions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all for user_subscriptions" ON user_subscriptions FOR ALL USING (true) WITH CHECK (true);
 
+-- Mandatory grants
+GRANT SELECT ON public.user_subscriptions TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_subscriptions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_subscriptions TO service_role;
+
 -- 5. SQL implementation of grantAccess (for Edge Functions & DB triggers)
 CREATE OR REPLACE FUNCTION grant_member_access(
   p_tenant_id TEXT,

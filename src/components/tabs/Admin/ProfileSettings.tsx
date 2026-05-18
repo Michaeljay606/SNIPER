@@ -1,411 +1,824 @@
-import React from 'react';
-import { useTranslation } from 'react-i18next';
-import { 
-  User, 
-  Activity, 
-  ImageIcon, 
-  Plus, 
-  Trash2, 
-  MessageCircle, 
-  Zap, 
-  BadgePercent, 
-  CreditCard, 
-  Loader2, 
-  ShieldAlert,
-  Share2
-} from 'lucide-react';
-import { PlanBadge } from '../../PlanBadge';
-import { NeonToggle } from '../../MasterControlPanel';
+import React, { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
+import { Settings, Save, Zap, Camera } from 'lucide-react';
+import { supabase } from '../../../lib/supabase';
+import { GlassCard, NeonButton } from '../../ui/Shared';
+import { useConfig } from '../../../context/ConfigContext';
 
-const FeatureLock = ({ children, feature, label, isAdmin, onUpgrade }: any) => {
-  if (!feature && !isAdmin) {
+type TradingModeType = 'forex' | 'binary' | 'both';
+
+interface ProfileSettingsProps {
+  onShowToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+}
+
+// Only the columns that actually exist in the 'tenants' table
+const EDITABLE_FIELDS: Record<string, { label: string; type: string; placeholder?: string }> = {
+  mentor_name:         { label: 'Nom du Mentor / Marque',  type: 'text',   placeholder: 'Ex: Ephata Tech' },
+  speciality:          { label: 'Spécialité',               type: 'text',   placeholder: 'Ex: Expert Trading Forex' },
+  years_exp:           { label: 'Années d\'expérience',     type: 'text',   placeholder: 'Ex: 5+' },
+  traders_count:       { label: 'Nombre de traders',        type: 'text',   placeholder: 'Ex: 1200+' },
+  vision_text:         { label: 'Vision / À propos',        type: 'textarea', placeholder: 'Décrivez votre vision...' },
+  social_telegram:     { label: 'Lien contact Telegram',   type: 'text',   placeholder: 'https://t.me/...' },
+  whatsapp_url:        { label: 'Lien WhatsApp',            type: 'text',   placeholder: 'https://wa.me/...' },
+};
+
+const ProfileSettings = ({ onShowToast }: ProfileSettingsProps) => {
+  const { tenant_id: paramTenantId } = useParams();
+  const TENANT_ID = paramTenantId || 'default';
+  const { refresh: refreshConfig } = useConfig();
+  const [config, setConfig] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+  const [tradingMode, setTradingMode] = useState<TradingModeType>('forex');
+  const [savingMode, setSavingMode] = useState(false);
+  const [brokers, setBrokers] = useState<any[]>([]);
+  const [isUploading, setIsUploading] = useState<string | null>(null);
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: string) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 3 * 1024 * 1024) {
+      onShowToast("Fichier trop volumineux (max 3MB)", 'warning');
+      return;
+    }
+
+    setIsUploading(type);
+    try {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const img = new Image();
+        img.onload = async () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          const maxDim = 800;
+          if (width > height) {
+            if (width > maxDim) { height *= maxDim / width; width = maxDim; }
+          } else {
+            if (height > maxDim) { width *= maxDim / height; height = maxDim; }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+
+          canvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const fileName = type === 'logo' ? 'avatar.webp' : 'cover.webp';
+            const filePath = `${TENANT_ID}/${fileName}`;
+
+            const { error: uploadError } = await supabase.storage
+              .from('profile')
+              .upload(filePath, blob, { contentType: 'image/webp', upsert: true });
+
+            if (uploadError) throw uploadError;
+
+            const { data: { publicUrl } } = supabase.storage
+              .from('profile')
+              .getPublicUrl(filePath);
+
+            // Store clean URL without cache-buster — the buster is only for display
+            const cleanUrl = publicUrl;
+            const displayUrl = `${publicUrl}?t=${Date.now()}`;
+
+            // Immediately persist to DB (don't wait for the Save button)
+            const dbField = type === 'logo' ? 'logo_url' : 'cover_image_url';
+            const { error: dbError } = await supabase
+              .from('tenants')
+              .update({ [dbField]: cleanUrl })
+              .eq('tenant_id', TENANT_ID);
+
+            if (dbError) {
+              onShowToast('Upload OK mais erreur DB: ' + dbError.message, 'error');
+            } else {
+              // Update local state with display URL (has cache buster for immediate display)
+              handleChange(dbField, displayUrl);
+              // Invalidate ConfigContext cache so next read gets fresh data
+              await refreshConfig();
+              onShowToast('Image sauvegardée ✓', 'success');
+            }
+
+            setIsUploading(null);
+          }, 'image/webp', 0.8);
+        };
+        img.src = event.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    } catch (err: any) {
+      console.error(err);
+      setIsUploading(null);
+      onShowToast("Erreur lors de l'upload", 'error');
+    }
+  };
+
+  useEffect(() => {
+    async function loadConfig() {
+      const { data, error } = await supabase.from('tenants').select('*').eq('tenant_id', TENANT_ID).single();
+      if (error) {
+        console.error('Load config error:', error.message);
+        onShowToast('Erreur de chargement: ' + error.message, 'error');
+        setConfig({ tenant_id: TENANT_ID });
+        return;
+      }
+      if (data) {
+        setConfig(data);
+        if (data.trading_mode) {
+          const normMode = data.trading_mode.toLowerCase();
+          setTradingMode(normMode === 'binary' ? 'binary' : 'forex');
+        }
+        // Build brokers array from broker_N_name / broker_N_url columns
+        const brkrs = [];
+        for (let i = 1; i <= 5; i++) {
+          if (data[`broker_${i}_name`]) {
+            brkrs.push({ index: i, name: data[`broker_${i}_name`] || '', url: data[`broker_${i}_url`] || '' });
+          }
+        }
+        if (brkrs.length === 0) brkrs.push({ index: 1, name: '', url: '' });
+        setBrokers(brkrs);
+      }
+    }
+    loadConfig();
+  }, [TENANT_ID]);
+
+  const handleChange = (field: string, value: any) => {
+    setConfig((prev: any) => ({ ...prev, [field]: value }));
+  };
+
+  const saveTradingMode = async () => {
+    setSavingMode(true);
+    const dbMode = tradingMode === 'binary' ? 'BINARY' : 'MARKETS';
+    const { error } = await supabase.from('tenants').update({ trading_mode: dbMode }).eq('tenant_id', TENANT_ID);
+    setSavingMode(false);
+    if (error) {
+      console.error('Save mode error:', error);
+      onShowToast('Erreur: ' + error.message, 'error');
+    } else {
+      onShowToast('Mode de trading mis à jour ✓', 'success');
+    }
+  };
+
+  const handleSave = async () => {
+    if (!config) return;
+    setSaving(true);
+
+    // Build only the columns that exist in the 'tenants' table
+    const payload: any = {
+      tenant_id: TENANT_ID,
+    };
+
+    // Add the simple editable fields
+    Object.keys(EDITABLE_FIELDS).forEach(field => {
+      if (config[field] !== undefined) payload[field] = config[field];
+    });
+
+    // Add image URLs explicitly since they were removed from EDITABLE_FIELDS
+    if (config.logo_url !== undefined) payload.logo_url = config.logo_url;
+    if (config.cover_image_url !== undefined) payload.cover_image_url = config.cover_image_url;
+
+    // Add pricing fields
+    const pricingFields = [
+      'signals_price', 'signals_duration_model',
+      'academy_price_lifetime', 'academy_price_1m', 'academy_duration_model',
+      'vip_model', 'vip_price_1m', 'vip_price_2m', 'vip_price_1y', 'vip_price_lifetime', 'vip_currency',
+      'grant_all_on_payment', 'ton_payment_enabled', 'ton_wallet',
+      'broker_msg_vip', 'broker_msg_academy', 'social_telegram',
+      'elite_title', 'elite_description', 'elite_price', 'elite_contact_url', 'elite_tag',
+      'wallets',
+    ];
+    pricingFields.forEach(field => {
+      if (config[field] !== undefined) payload[field] = config[field];
+    });
+
+    // Add broker columns
+    brokers.forEach(b => {
+      if (b.index) {
+        payload[`broker_${b.index}_name`] = b.name || null;
+        payload[`broker_${b.index}_url`] = b.url || null;
+      }
+    });
+
+    // Add trading_mode explicitly to avoid default value constraint violation
+    payload.trading_mode = tradingMode === 'binary' ? 'BINARY' : 'MARKETS';
+
+    const { error } = await supabase.from('tenants').upsert(payload);
+    setSaving(false);
+
+    if (error) {
+      console.error('Save error:', error);
+      onShowToast('Erreur: ' + error.message, 'error');
+    } else {
+      // Invalidate ConfigContext so the whole app picks up new values immediately
+      await refreshConfig();
+      onShowToast('Configuration sauvegardée ✓', 'success');
+    }
+  };
+
+  if (!config) {
     return (
-      <div className="relative group cursor-not-allowed">
-        <div className="opacity-40 grayscale pointer-events-none">{children}</div>
-        <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-[1px] rounded-xl opacity-0 group-hover:opacity-100 transition-all">
-          <button type="button" onClick={onUpgrade} className="bg-accent-warning text-bg-base px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest shadow-lg">UPGRADE {label}</button>
-        </div>
+      <div className="flex justify-center items-center h-32">
+        <span className="animate-pulse text-[10px] font-black tracking-widest uppercase" style={{ color: 'var(--accent-neon)' }}>
+          Chargement...
+        </span>
       </div>
     );
   }
-  return children;
-};
 
-const ProfileSettings = ({ 
-  profileData, 
-  setProfileData, 
-  handleSaveProfile, 
-  isSavingProfile, 
-  features, 
-  triggerProfileImageUpload, 
-  profilePhoto, 
-  setShowUpgradeSheet,
-  t 
-}: any) => {
   return (
-    <form onSubmit={handleSaveProfile} className="space-y-8 pb-20">
-      <section className="space-y-4">
-        <h3 className="text-xs font-black text-accent-neon uppercase tracking-widest flex items-center gap-2 px-1">
-          <User size={16} /> {t('admin.identity')}
-        </h3>
+    <div className="space-y-6 pb-24 animate-in fade-in duration-500">
 
-        <div className="flex items-center gap-4 p-4 bg-bg-surface border border-border-subtle rounded-2xl">
-          <div className="relative flex-shrink-0">
-            <div className="w-20 h-20 rounded-2xl overflow-hidden bg-bg-elevated border border-border-subtle flex items-center justify-center">
-              {profilePhoto ? (
-                <img src={profilePhoto} alt="Profil" className="w-full h-full object-cover" />
-              ) : (
-                <User size={32} className="text-text-muted" />
-              )}
-            </div>
+      {/* MODE DE TRADING */}
+      <GlassCard className="p-4">
+        <h4 className="text-[10px] font-black tracking-widest uppercase mb-1 flex items-center gap-2" style={{ color: 'var(--accent-neon)' }}>
+          <Zap size={14} /> MODE DE TRADING
+        </h4>
+        <p className="text-[10px] mb-4" style={{ color: 'var(--text-muted)' }}>Quel type de trading proposez-vous à vos membres ?</p>
+        <div className="grid grid-cols-1 gap-2 mb-4">
+          {([
+            { id: 'forex',  emoji: '📈', label: 'FOREX / CRYPTO',    desc: 'Signaux Forex & Crypto seulement' },
+            { id: 'binary', emoji: '🎯', label: 'BINAIRE UNIQUEMENT', desc: 'Options binaires seulement' },
+          ] as { id: TradingModeType; emoji: string; label: string; desc: string }[]).map(opt => (
             <button
+              key={opt.id}
               type="button"
-              onClick={() => triggerProfileImageUpload('profile')}
-              className="absolute -bottom-1 -right-1 w-8 h-8 bg-accent-neon text-bg-base rounded-full border-2 border-bg-base flex items-center justify-center shadow-lg"
+              onClick={() => setTradingMode(opt.id)}
+              className="flex items-center gap-3 p-3 rounded-xl border transition-all min-h-[52px] text-left"
+              style={{
+                background:  tradingMode === opt.id 
+                  ? (opt.id === 'binary' ? 'rgba(0,152,234,0.08)' : 'rgba(0,255,65,0.08)') 
+                  : 'var(--bg-void)',
+                borderColor: tradingMode === opt.id 
+                  ? (opt.id === 'binary' ? 'rgba(0,152,234,0.3)' : 'rgba(0,255,65,0.3)') 
+                  : 'var(--border-subtle)',
+              }}
             >
-              <ImageIcon size={14} />
+              <span className="text-lg">{opt.emoji}</span>
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-widest" 
+                  style={{ color: tradingMode === opt.id ? (opt.id === 'binary' ? '#0098EA' : 'var(--accent-neon)') : 'var(--text-primary)' }}>
+                  {opt.label}
+                </p>
+                <p className="text-[9px]" style={{ color: 'var(--text-muted)' }}>{opt.desc}</p>
+              </div>
+              {tradingMode === opt.id && (
+                <span className="ml-auto text-[10px] font-black" 
+                  style={{ color: opt.id === 'binary' ? '#0098EA' : 'var(--accent-neon)' }}>
+                  ✓ ACTIF
+                </span>
+              )}
             </button>
+          ))}
+        </div>
+        <button
+          onClick={saveTradingMode}
+          disabled={savingMode}
+          className="w-full py-3 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all min-h-[44px] text-black"
+          style={{ background: savingMode ? 'rgba(0,255,65,0.4)' : 'var(--accent-neon)' }}
+        >
+          {savingMode ? 'Sauvegarde...' : '💾 SAUVEGARDER LE MODE'}
+        </button>
+      </GlassCard>
+
+      {/* SAVE BUTTON */}
+      <GlassCard className="p-4 sticky top-0 z-20 backdrop-blur-xl bg-bg-void/80">
+        <div className="flex justify-between items-center">
+          <h3 className="text-[11px] font-black tracking-[0.2em] uppercase flex items-center gap-2" style={{ color: 'var(--accent-neon)' }}>
+            <Settings size={16} /> Profil & Configuration
+          </h3>
+          <NeonButton onClick={handleSave} disabled={saving} className="px-4 py-2 text-[10px] min-h-[44px]">
+            {saving ? '...' : <><Save size={14} /> SAUVEGARDER</>}
+          </NeonButton>
+        </div>
+      </GlassCard>
+
+      {/* IDENTITY FIELDS */}
+      <GlassCard className="p-4">
+        <h4 className="text-[10px] font-black tracking-widest uppercase border-b border-border-subtle/30 pb-2 mb-4" style={{ color: 'var(--text-secondary)' }}>
+          Identité & Branding
+        </h4>
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black tracking-widest uppercase ml-1" style={{ color: 'var(--text-secondary)' }}>Logo / Avatar</label>
+            <label className="block h-24 rounded-xl border border-dashed border-border-subtle bg-bg-void/50 flex flex-col items-center justify-center cursor-pointer hover:border-accent-emerald transition-colors relative overflow-hidden">
+              {isUploading === 'logo' ? (
+                <div className="animate-spin rounded-full h-6 w-6 border-2 border-accent-emerald border-t-transparent" />
+              ) : config.logo_url ? (
+                <img src={config.logo_url} className="w-full h-full object-cover" alt="Logo" />
+              ) : (
+                <>
+                  <Camera size={20} className="text-text-muted mb-1" />
+                  <span className="text-[9px] text-text-muted uppercase tracking-wider">Ajouter Logo</span>
+                </>
+              )}
+              <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'logo')} />
+            </label>
           </div>
-          <div className="flex-1 space-y-1">
-            <p className="text-[10px] font-black text-text-primary uppercase tracking-widest">Avatar Terminal</p>
-            <p className="text-[9px] text-text-secondary leading-relaxed">Format carré recommandé. Max 2MB.</p>
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black tracking-widest uppercase ml-1" style={{ color: 'var(--text-secondary)' }}>Couverture</label>
+            <label className="block h-24 rounded-xl border border-dashed border-border-subtle bg-bg-void/50 flex flex-col items-center justify-center cursor-pointer hover:border-accent-emerald transition-colors relative overflow-hidden">
+              {isUploading === 'cover' ? (
+                <div className="animate-spin rounded-full h-6 w-6 border-2 border-accent-emerald border-t-transparent" />
+              ) : config.cover_image_url ? (
+                <img src={config.cover_image_url} className="w-full h-full object-cover" alt="Cover" />
+              ) : (
+                <>
+                  <Camera size={20} className="text-text-muted mb-1" />
+                  <span className="text-[9px] text-text-muted uppercase tracking-wider">Ajouter Fond</span>
+                </>
+              )}
+              <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'cover')} />
+            </label>
           </div>
         </div>
-
-        <div className="grid gap-4">
-          <FeatureLock feature={features.canCustomizeName} label="Nom Custom" isAdmin={true} onUpgrade={() => setShowUpgradeSheet(true)}>
-            <div className="space-y-1.5">
-              <label className="text-[10px] text-text-secondary uppercase font-bold px-1">{t('admin.mentor_name')}</label>
-              <input 
-                className="w-full h-12 bg-bg-elevated border border-border-subtle rounded-xl px-4 text-sm text-text-primary focus:border-accent-neon outline-none transition-all" 
-                value={profileData?.mentor_name || ''} 
-                onChange={e => setProfileData({...profileData, mentor_name: e.target.value})} 
-                placeholder="Ex: John Doe"
-              />
-            </div>
-          </FeatureLock>
-
+        <div className="space-y-4">
+          {/* NOM & SPÉCIALITÉ */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <label className="text-[10px] text-text-secondary uppercase font-bold px-1">{t('admin.speciality')}</label>
-              <input 
-                className="w-full h-12 bg-bg-elevated border border-border-subtle rounded-xl px-4 text-sm text-text-primary focus:border-accent-neon outline-none" 
-                value={profileData?.speciality || ''} 
-                onChange={e => setProfileData({...profileData, speciality: e.target.value})} 
-                placeholder="Ex: ICT / SMC"
+              <label className="text-[10px] font-black tracking-widest uppercase ml-1" style={{ color: 'var(--text-secondary)' }}>
+                {EDITABLE_FIELDS.mentor_name.label}
+              </label>
+              <input
+                type="text"
+                value={config.mentor_name || ''}
+                onChange={e => handleChange('mentor_name', e.target.value)}
+                placeholder={EDITABLE_FIELDS.mentor_name.placeholder}
+                className="w-full bg-bg-void border border-border-subtle rounded-xl px-4 py-3 text-sm text-text-primary focus:border-accent-emerald outline-none min-h-[44px]"
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-[10px] text-text-secondary uppercase font-bold px-1">{t('admin.years_exp')}</label>
-              <input 
-                className="w-full h-12 bg-bg-elevated border border-border-subtle rounded-xl px-4 text-sm text-text-primary focus:border-accent-neon outline-none" 
-                value={profileData?.years_exp || ''} 
-                onChange={e => setProfileData({...profileData, years_exp: e.target.value})} 
-                placeholder="Ex: 5"
+              <label className="text-[10px] font-black tracking-widest uppercase ml-1" style={{ color: 'var(--text-secondary)' }}>
+                {EDITABLE_FIELDS.speciality.label}
+              </label>
+              <input
+                type="text"
+                value={config.speciality || ''}
+                onChange={e => handleChange('speciality', e.target.value)}
+                placeholder={EDITABLE_FIELDS.speciality.placeholder}
+                className="w-full bg-bg-void border border-border-subtle rounded-xl px-4 py-3 text-sm text-text-primary focus:border-accent-emerald outline-none min-h-[44px]"
               />
             </div>
           </div>
-        </div>
-      </section>
 
-      <section className="space-y-4 pt-6 border-t border-border-subtle">
-        <h3 className="text-xs font-black text-accent-neon uppercase tracking-widest flex items-center gap-2 px-1">
-          <MessageCircle size={16} /> {t('admin.vision_and_bio')}
-        </h3>
-        <div className="space-y-4">
+          {/* EXPÉRIENCE & TRADERS */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black tracking-widest uppercase ml-1" style={{ color: 'var(--text-secondary)' }}>
+                {EDITABLE_FIELDS.years_exp.label}
+              </label>
+              <input
+                type="text"
+                value={config.years_exp || ''}
+                onChange={e => handleChange('years_exp', e.target.value)}
+                placeholder={EDITABLE_FIELDS.years_exp.placeholder}
+                className="w-full bg-bg-void border border-border-subtle rounded-xl px-4 py-3 text-sm text-text-primary focus:border-accent-emerald outline-none min-h-[44px]"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black tracking-widest uppercase ml-1" style={{ color: 'var(--text-secondary)' }}>
+                {EDITABLE_FIELDS.traders_count.label}
+              </label>
+              <input
+                type="text"
+                value={config.traders_count || ''}
+                onChange={e => handleChange('traders_count', e.target.value)}
+                placeholder={EDITABLE_FIELDS.traders_count.placeholder}
+                className="w-full bg-bg-void border border-border-subtle rounded-xl px-4 py-3 text-sm text-text-primary focus:border-accent-emerald outline-none min-h-[44px]"
+              />
+            </div>
+          </div>
+
+          {/* VISION (Full width) */}
           <div className="space-y-1.5">
-            <label className="text-[10px] text-text-secondary uppercase font-bold px-1">{t('admin.vision_title')}</label>
-            <input 
-              className="w-full h-12 bg-bg-elevated border border-border-subtle rounded-xl px-4 text-sm text-text-primary focus:border-accent-neon outline-none" 
-              value={profileData?.vision_title || ''} 
-              onChange={e => setProfileData({...profileData, vision_title: e.target.value})} 
-              placeholder="Ex: Ma Vision du Trading"
+            <label className="text-[10px] font-black tracking-widest uppercase ml-1" style={{ color: 'var(--text-secondary)' }}>
+              {EDITABLE_FIELDS.vision_text.label}
+            </label>
+            <textarea
+              rows={3}
+              value={config.vision_text || ''}
+              onChange={e => handleChange('vision_text', e.target.value)}
+              placeholder={EDITABLE_FIELDS.vision_text.placeholder}
+              className="w-full bg-bg-void border border-border-subtle rounded-xl px-4 py-3 text-sm text-text-primary focus:border-accent-emerald outline-none resize-none"
             />
           </div>
-          <div className="space-y-1.5">
-            <label className="text-[10px] text-text-secondary uppercase font-bold px-1">{t('admin.vision_text')}</label>
-            <textarea 
-              className="w-full h-32 bg-bg-elevated border border-border-subtle rounded-xl px-4 py-3 text-sm text-text-primary focus:border-accent-neon outline-none resize-none" 
-              value={profileData?.vision_text || ''} 
-              onChange={e => setProfileData({...profileData, vision_text: e.target.value})} 
-              placeholder="Décrivez votre approche..."
-            />
+
+          {/* RÉSEAUX SOCIAUX */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black tracking-widest uppercase ml-1" style={{ color: 'var(--text-secondary)' }}>
+                {EDITABLE_FIELDS.social_telegram.label}
+              </label>
+              <input
+                type="text"
+                value={config.social_telegram || ''}
+                onChange={e => handleChange('social_telegram', e.target.value)}
+                placeholder={EDITABLE_FIELDS.social_telegram.placeholder}
+                className="w-full bg-bg-void border border-border-subtle rounded-xl px-4 py-3 text-xs font-mono text-text-secondary focus:border-accent-emerald outline-none min-h-[44px]"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black tracking-widest uppercase ml-1" style={{ color: 'var(--text-secondary)' }}>
+                {EDITABLE_FIELDS.whatsapp_url.label}
+              </label>
+              <input
+                type="text"
+                value={config.whatsapp_url || ''}
+                onChange={e => handleChange('whatsapp_url', e.target.value)}
+                placeholder={EDITABLE_FIELDS.whatsapp_url.placeholder}
+                className="w-full bg-bg-void border border-border-subtle rounded-xl px-4 py-3 text-xs font-mono text-text-secondary focus:border-accent-emerald outline-none min-h-[44px]"
+              />
+            </div>
           </div>
         </div>
-      </section>
+      </GlassCard>
 
-      <section className="space-y-4 pt-6 border-t border-border-subtle">
-        <div className="flex justify-between items-center px-1">
-          <h3 className="text-xs font-black text-accent-neon uppercase tracking-widest flex items-center gap-2">
-            <Activity size={16} /> {t('admin.timeline')}
-          </h3>
-          <button 
-            type="button"
-            onClick={() => {
-              const newTimeline = [...(profileData.timeline || []), { year: '', milestone: '' }];
-              setProfileData({...profileData, timeline: newTimeline});
-            }}
-            className="p-2 bg-accent-neon/10 text-accent-neon rounded-lg"
-          >
-            <Plus size={14} />
-          </button>
-        </div>
-        <div className="space-y-3">
-          {(profileData?.timeline || []).map((step: any, idx: number) => (
-            <div key={idx} className="flex gap-2 items-start">
-              <input 
-                className="w-20 bg-bg-elevated border border-border-subtle rounded-xl px-3 py-2 text-xs font-bold text-center" 
-                placeholder="2024"
-                value={step.year}
-                onChange={e => {
-                  const newT = [...profileData.timeline];
-                  newT[idx].year = e.target.value;
-                  setProfileData({...profileData, timeline: newT});
-                }}
-              />
-              <input 
-                className="flex-1 bg-bg-elevated border border-border-subtle rounded-xl px-3 py-2 text-xs" 
-                placeholder="Événement marquant"
-                value={step.milestone}
-                onChange={e => {
-                  const newT = [...profileData.timeline];
-                  newT[idx].milestone = e.target.value;
-                  setProfileData({...profileData, timeline: newT});
-                }}
-              />
-              <button 
-                type="button"
-                onClick={() => {
-                  const newT = profileData.timeline.filter((_: any, i: number) => i !== idx);
-                  setProfileData({...profileData, timeline: newT});
-                }}
-                className="p-2.5 text-accent-red"
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="space-y-4 pt-6 border-t border-border-subtle">
-        <h3 className="text-xs font-black text-accent-neon uppercase tracking-widest flex items-center gap-2 px-1">
-          <Zap size={16} /> {t('profile.partner_broker')}
-        </h3>
-        <div className="space-y-3">
-          {(profileData?.broker_links || []).map((link: any, idx: number) => (
-            <div key={idx} className="flex gap-2 items-end bg-bg-surface p-3 rounded-2xl border border-border-subtle">
-              <div className="flex-1 space-y-2">
-                <input 
-                  placeholder="Nom du Broker" 
-                  className="w-full bg-bg-void border border-border-subtle rounded-xl px-3 py-2 text-xs text-text-primary" 
-                  value={link.name} 
-                  onChange={e => {
-                    const newLinks = [...(profileData.broker_links || [])];
-                    newLinks[idx].name = e.target.value;
-                    setProfileData({...profileData, broker_links: newLinks});
-                  }} 
-                />
-                <input 
-                  placeholder="Lien d'affiliation" 
-                  className="w-full bg-bg-void border border-border-subtle rounded-xl px-3 py-2 text-xs text-text-primary" 
-                  value={link.url} 
-                  onChange={e => {
-                    const newLinks = [...(profileData.broker_links || [])];
-                    newLinks[idx].url = e.target.value;
-                    setProfileData({...profileData, broker_links: newLinks});
-                  }} 
-                />
-              </div>
-              <button 
-                type="button"
-                onClick={() => {
-                  const newLinks = (profileData.broker_links || []).filter((_: any, i: number) => i !== idx);
-                  setProfileData({...profileData, broker_links: newLinks});
-                }}
-                className="p-3 bg-accent-red/10 text-accent-red rounded-xl"
-              >
-                <Trash2 size={16} />
-              </button>
-            </div>
-          ))}
-          {(profileData?.broker_links || []).length < features.brokerLimit && (
-            <button 
-              type="button"
-              onClick={() => {
-                const newLinks = [...(profileData.broker_links || []), { name: '', url: '' }];
-                setProfileData({...profileData, broker_links: newLinks});
-              }}
-              className="w-full py-4 border-2 border-dashed border-border-subtle rounded-2xl text-[10px] font-black uppercase text-text-secondary hover:text-accent-neon transition-all"
+      {/* BROKERS */}
+      <GlassCard className="p-4">
+        <div className="flex justify-between items-center border-b border-border-subtle/30 pb-2 mb-4">
+          <h4 className="text-[10px] font-black tracking-widest uppercase" style={{ color: 'var(--text-secondary)' }}>Brokers Partenaires</h4>
+          {brokers.length < 5 && (
+            <button
+              onClick={() => setBrokers(prev => [...prev, { index: prev.length + 1, name: '', url: '' }])}
+              className="text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg min-h-[36px]"
+              style={{ color: 'var(--accent-neon)', background: 'rgba(0,255,65,0.08)', border: '1px solid rgba(0,255,65,0.2)' }}
             >
-              + {t('admin.add_broker')}
+              + Ajouter
             </button>
           )}
         </div>
-      </section>
+        <div className="space-y-4">
+          {brokers.map((b, idx) => (
+            <div key={idx} className="grid grid-cols-2 gap-3 p-3 rounded-xl border border-border-subtle/50 bg-bg-void/50">
+              <div className="space-y-1.5">
+                <label className="text-[9px] font-black tracking-widest uppercase ml-1" style={{ color: 'var(--text-muted)' }}>Nom broker {b.index}</label>
+                <input
+                  type="text"
+                  value={b.name}
+                  onChange={e => setBrokers(prev => prev.map((br, i) => i === idx ? { ...br, name: e.target.value } : br))}
+                  placeholder="Ex: Pocket Option"
+                  className="w-full bg-bg-void border border-border-subtle rounded-xl px-3 py-2 text-xs text-text-primary focus:border-accent-emerald outline-none min-h-[40px]"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[9px] font-black tracking-widest uppercase ml-1" style={{ color: 'var(--text-muted)' }}>Lien affiliation</label>
+                <input
+                  type="text"
+                  value={b.url}
+                  onChange={e => setBrokers(prev => prev.map((br, i) => i === idx ? { ...br, url: e.target.value } : br))}
+                  placeholder="https://..."
+                  className="w-full bg-bg-void border border-border-subtle rounded-xl px-3 py-2 text-xs font-mono text-text-secondary focus:border-accent-emerald outline-none min-h-[40px]"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </GlassCard>
 
-      <section className="space-y-4 pt-6 border-t border-border-subtle">
-        <h3 className="text-xs font-black text-accent-neon uppercase tracking-widest flex items-center gap-2 px-1">
-          <CreditCard size={16} /> {t('admin.access_model')}
-        </h3>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="p-4 bg-bg-surface border border-border-subtle rounded-2xl space-y-3">
-             <div className="flex justify-between items-center">
-                <p className="text-[10px] font-bold text-text-primary uppercase tracking-widest">PAIEMENT DIRECT</p>
-                <NeonToggle 
-                  checked={profileData?.is_payment_active || false} 
-                  onChange={(checked) => setProfileData({...profileData, is_payment_active: checked})} 
-                />
-             </div>
-             <input 
-              type="number"
-              className="w-full bg-bg-void border border-border-subtle rounded-xl px-4 py-2 text-sm font-bold font-mono"
-              placeholder="Prix en TON"
-              value={profileData?.payment_price || ''}
-              onChange={e => setProfileData({...profileData, payment_price: parseFloat(e.target.value) || 0})}
-             />
-          </div>
-          <div className="p-4 bg-bg-surface border border-border-subtle rounded-2xl flex flex-col justify-center gap-3">
-             <div className="flex justify-between items-center">
-                <p className="text-[10px] font-bold text-text-primary uppercase tracking-widest">MODÈLE BROKER</p>
-                <NeonToggle 
-                  checked={profileData?.is_broker_active !== false} 
-                  onChange={(checked) => setProfileData({...profileData, is_broker_active: checked})} 
-                />
-             </div>
-             <p className="text-[8px] text-text-secondary leading-tight uppercase font-mono">Validation manuelle via ID Affilié</p>
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* BLOC 1 — VIP SIGNAUX                               */}
+      {/* ═══════════════════════════════════════════════════ */}
+      <div style={{
+        borderRadius: 20,
+        background: 'linear-gradient(135deg, rgba(0,255,65,0.04) 0%, rgba(0,0,0,0) 60%)',
+        border: '1px solid rgba(0,255,65,0.12)',
+        padding: 0,
+        overflow: 'hidden',
+      }}>
+        {/* Header */}
+        <div style={{ padding: '16px 18px 0', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+          <div style={{ fontSize: 20 }}>📡</div>
+          <div>
+            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: 11, fontWeight: 700, color: '#00FF41', letterSpacing: '0.15em', textTransform: 'uppercase' }}>
+              Accès VIP — Signaux
+            </div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>
+              Comment les membres débloquent les signaux premium ?
+            </div>
           </div>
         </div>
-      </section>
 
-      <section className="space-y-4 pt-6 border-t border-border-subtle">
-        <h3 className="text-xs font-black text-accent-neon uppercase tracking-widest flex items-center gap-2 px-1">
-          <BadgePercent size={16} /> Elite Coaching
-        </h3>
-        <FeatureLock feature={features.canConfigureEliteCoaching} label="Coaching" isAdmin={true} onUpgrade={() => setShowUpgradeSheet(true)}>
-          <div className="p-4 bg-bg-surface border border-border-subtle rounded-2xl space-y-4">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="text-[10px] font-bold text-text-primary uppercase tracking-widest">Section Coaching</p>
-                <p className="text-[8px] text-text-muted">Affiche un bouton "Coaching" sur votre profil</p>
-              </div>
-              <NeonToggle 
-                checked={profileData?.is_coaching_active || false} 
-                onChange={(checked) => setProfileData({...profileData, is_coaching_active: checked})} 
-              />
-            </div>
-            {profileData?.is_coaching_active && (
-              <input 
-                className="w-full h-11 bg-bg-void border border-border-subtle rounded-xl px-4 text-xs font-bold text-accent-neon" 
-                placeholder="Lien Calendly ou Telegram"
-                value={profileData?.coaching_url || ''}
-                onChange={e => setProfileData({...profileData, coaching_url: e.target.value})}
-              />
-            )}
-          </div>
-        </FeatureLock>
-      </section>
+        <div style={{ padding: '14px 18px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-      <section className="space-y-4 pt-6 border-t border-border-subtle">
-        <h3 className="text-xs font-black text-accent-neon uppercase tracking-widest flex items-center gap-2 px-1">
-          <Share2 size={16} /> Social Links
-        </h3>
-        <FeatureLock feature={features.canConfigureSocialLinks} label="Réseaux Sociaux" isAdmin={true} onUpgrade={() => setShowUpgradeSheet(true)}>
-          <div className="space-y-3">
-            {(profileData?.social_links || []).map((link: any, idx: number) => (
-              <div key={idx} className="flex gap-2 items-center bg-bg-surface p-3 rounded-2xl border border-border-subtle">
-                <select 
-                  className="w-24 bg-bg-void border border-border-subtle rounded-xl px-2 py-2 text-[10px] font-bold uppercase"
-                  value={link.type}
-                  onChange={e => {
-                    const newS = [...profileData.social_links];
-                    newS[idx].type = e.target.value;
-                    setProfileData({...profileData, social_links: newS});
-                  }}
-                >
-                  <option value="instagram">Instagram</option>
-                  <option value="telegram">Telegram</option>
-                  <option value="youtube">YouTube</option>
-                  <option value="globe">Website</option>
-                </select>
-                <input 
-                  placeholder="URL ou @Username" 
-                  className="flex-1 bg-bg-void border border-border-subtle rounded-xl px-3 py-2 text-xs"
-                  value={link.url}
-                  onChange={e => {
-                    const newS = [...profileData.social_links];
-                    newS[idx].url = e.target.value;
-                    setProfileData({...profileData, social_links: newS});
-                  }}
-                />
-                <button 
+          {/* ── Mode selector ─────────────────────────────── */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+            {([
+              { id: 'payment', icon: '💳', title: 'PAIEMENT', sub: 'Abonnement mensuel / annuel' },
+              { id: 'broker',  icon: '🤝', title: 'BROKER',   sub: 'Inscription via lien affilié' },
+              { id: 'both',    icon: '⚡', title: 'LES DEUX', sub: 'Membre choisit' },
+            ] as { id: string; icon: string; title: string; sub: string }[]).map(opt => {
+              const active = (config.vip_model || 'payment') === opt.id;
+              return (
+                <button
+                  key={opt.id}
                   type="button"
-                  onClick={() => {
-                    const newS = profileData.social_links.filter((_: any, i: number) => i !== idx);
-                    setProfileData({...profileData, social_links: newS});
+                  onClick={() => handleChange('vip_model', opt.id)}
+                  style={{
+                    background: active ? 'rgba(0,255,65,0.08)' : 'rgba(255,255,255,0.02)',
+                    border: active ? '1.5px solid rgba(0,255,65,0.4)' : '1px solid rgba(255,255,255,0.07)',
+                    borderRadius: 14, padding: '12px 6px', cursor: 'pointer',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
+                    transition: 'all 0.2s',
                   }}
-                  className="p-2 text-accent-red"
                 >
-                  <Trash2 size={14} />
+                  <span style={{ fontSize: 22 }}>{opt.icon}</span>
+                  <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 8, fontWeight: 700, letterSpacing: '0.1em', color: active ? '#00FF41' : 'rgba(255,255,255,0.5)', textTransform: 'uppercase' }}>
+                    {opt.title}
+                  </span>
+                  {active && (
+                    <span style={{ fontSize: 7, color: 'rgba(0,255,65,0.6)', textAlign: 'center', lineHeight: 1.3 }}>
+                      {opt.sub}
+                    </span>
+                  )}
                 </button>
-              </div>
-            ))}
-            {(profileData?.social_links || []).length < (features.socialLimit || 3) && (
-              <button 
-                type="button"
-                onClick={() => {
-                  const newS = [...(profileData.social_links || []), { type: 'instagram', url: '' }];
-                  setProfileData({...profileData, social_links: newS});
-                }}
-                className="w-full py-4 border-2 border-dashed border-border-subtle rounded-2xl text-[10px] font-black uppercase text-text-secondary"
-              >
-                + AJOUTER UN RÉSEAU
-              </button>
-            )}
+              );
+            })}
           </div>
-        </FeatureLock>
-      </section>
 
-      <section className="space-y-4 pt-6 border-t border-border-subtle">
-        <h3 className="text-xs font-black text-accent-neon uppercase tracking-widest flex items-center gap-2 px-1">
-          <Activity size={16} /> Theme & Brand
-        </h3>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold text-text-secondary uppercase tracking-widest px-1">Accent Color</label>
-            <div className="flex items-center gap-3 p-3 bg-bg-surface border border-border-subtle rounded-xl">
-              <input 
-                type="color" 
-                className="w-8 h-8 rounded-lg overflow-hidden border-none cursor-pointer"
-                value={profileData?.brand_color || '#00FF41'}
-                onChange={e => setProfileData({...profileData, brand_color: e.target.value})}
-              />
-              <span className="text-[10px] font-mono text-text-primary uppercase">{profileData?.brand_color || '#00FF41'}</span>
+          {/* ── PAYMENT fields ────────────────────────────── */}
+          {(config.vip_model === 'payment' || config.vip_model === 'both' || !config.vip_model) && (
+            <div>
+              <div style={{ fontFamily: 'Space Mono, monospace', fontSize: 9, letterSpacing: '0.15em', color: 'rgba(0,255,65,0.6)', textTransform: 'uppercase', marginBottom: 10, fontWeight: 700 }}>
+                Plans tarifaires
+              </div>
+              {/* Plan rows — each has label + price input side by side */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[
+                  { field: 'vip_price_1m',       label: '1 Mois',  tag: 'Mensuel', tagColor: '#00FF41' },
+                  { field: 'vip_price_1y',       label: '1 An',    tag: 'Économie -40%', tagColor: '#FFD60A' },
+                  { field: 'vip_price_lifetime', label: 'À Vie',   tag: 'Meilleur prix', tagColor: '#FF6B6B' },
+                ].map(({ field, label, tag, tagColor }) => (
+                  <div key={field} style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
+                    borderRadius: 12, padding: '10px 14px',
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#F0F0F0' }}>{label}</div>
+                      <div style={{ fontSize: 9, color: tagColor, fontFamily: 'Space Mono, monospace', marginTop: 2 }}>{tag}</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        type="number"
+                        value={config[field] || ''}
+                        onChange={e => handleChange(field, e.target.value)}
+                        placeholder="0"
+                        style={{
+                          width: 80, background: 'rgba(0,0,0,0.4)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: 8, padding: '6px 10px',
+                          fontFamily: 'Space Mono, monospace', fontSize: 14, fontWeight: 700,
+                          color: '#FFFFFF', outline: 'none', textAlign: 'right',
+                        }}
+                      />
+                      <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 10, color: 'rgba(255,255,255,0.3)', minWidth: 32 }}>
+                        {config.vip_currency || 'USDT'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Devise + Telegram */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+                <div>
+                  <label style={{ display: 'block', fontFamily: 'Space Mono, monospace', fontSize: 8, letterSpacing: '0.12em', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', marginBottom: 6 }}>Devise</label>
+                  <input
+                    type="text"
+                    value={config.vip_currency || 'USDT'}
+                    onChange={e => handleChange('vip_currency', e.target.value)}
+                    placeholder="USDT"
+                    style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: '10px 12px', fontFamily: 'Space Mono, monospace', fontSize: 12, color: '#FFFFFF', outline: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontFamily: 'Space Mono, monospace', fontSize: 8, letterSpacing: '0.12em', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', marginBottom: 6 }}>Telegram contact</label>
+                  <input
+                    type="text"
+                    value={config.social_telegram || ''}
+                    onChange={e => handleChange('social_telegram', e.target.value)}
+                    placeholder="@username"
+                    style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: '10px 12px', fontFamily: 'Space Mono, monospace', fontSize: 12, color: '#FFFFFF', outline: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
+              </div>
+
+              {/* ── TON CONNECT ─────────────────────────────── */}
+              <div style={{ marginTop: 20, padding: 16, background: 'rgba(0,152,234,0.04)', border: '1px solid rgba(0,152,234,0.15)', borderRadius: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 18 }}>💎</span>
+                    <div>
+                      <div style={{ fontFamily: 'Space Mono, monospace', fontSize: 10, fontWeight: 700, color: '#0098EA', letterSpacing: '0.05em' }}>TON CONNECT (USDT)</div>
+                      <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>Paiement crypto automatique</div>
+                    </div>
+                  </div>
+                  <div 
+                    onClick={() => handleChange('ton_payment_enabled', !config.ton_payment_enabled)}
+                    style={{ 
+                      width: 40, height: 20, borderRadius: 10, 
+                      background: config.ton_payment_enabled ? '#0098EA' : 'rgba(255,255,255,0.1)', 
+                      position: 'relative', cursor: 'pointer', transition: 'all 0.2s' 
+                    }}
+                  >
+                    <div style={{ 
+                      width: 16, height: 16, borderRadius: '50%', background: '#FFF', 
+                      position: 'absolute', top: 2, left: config.ton_payment_enabled ? 22 : 2, 
+                      transition: 'all 0.2s' 
+                    }} />
+                  </div>
+                </div>
+
+                {config.ton_payment_enabled && (
+                  <div className="animate-in slide-in-from-top duration-300">
+                    <label style={{ display: 'block', fontFamily: 'Space Mono, monospace', fontSize: 8, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', marginBottom: 6 }}>Adresse Wallet TON (Réception)</label>
+                    <input
+                      type="text"
+                      value={config.ton_wallet || ''}
+                      onChange={e => handleChange('ton_wallet', e.target.value)}
+                      placeholder="UQ..."
+                      style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(0,152,234,0.3)', borderRadius: 10, padding: '10px 12px', fontFamily: 'Space Mono, monospace', fontSize: 11, color: '#0098EA', outline: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── BROKER info ────────────────────────────────── */}
+          {(config.vip_model === 'broker' || config.vip_model === 'both') && (
+            <div style={{
+              background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.15)',
+              borderRadius: 12, padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'flex-start',
+            }}>
+              <span style={{ fontSize: 18, flexShrink: 0 }}>🔗</span>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#60A5FA', marginBottom: 4 }}>Liens d'affiliation broker</div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', lineHeight: 1.6 }}>
+                  Configurez vos brokers partenaires dans la section <strong style={{ color: 'rgba(255,255,255,0.7)' }}>Brokers Partenaires</strong> ci-dessus. Le membre recevra vos liens d'affiliation directement dans le modal de déblocage.
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* BLOC 2 — VIP ACADEMY                               */}
+      {/* ═══════════════════════════════════════════════════ */}
+      <div style={{
+        borderRadius: 20,
+        background: 'linear-gradient(135deg, rgba(255,214,10,0.04) 0%, rgba(0,0,0,0) 60%)',
+        border: '1px solid rgba(255,214,10,0.12)',
+        padding: 0,
+        overflow: 'hidden',
+      }}>
+        {/* Header */}
+        <div style={{ padding: '16px 18px 0', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+          <div style={{ fontSize: 20 }}>🎓</div>
+          <div>
+            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: 11, fontWeight: 700, color: '#FFD60A', letterSpacing: '0.15em', textTransform: 'uppercase' }}>
+              Accès Academy
+            </div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>
+              Comment les membres débloquent les cours premium ?
             </div>
           </div>
-          <div className="space-y-2">
-             <label className="text-[10px] font-bold text-text-secondary uppercase tracking-widest px-1">Logo Terminal</label>
-             <button 
-              type="button"
-              onClick={() => triggerProfileImageUpload('logo')}
-              className="w-full h-14 border border-dashed border-border-subtle rounded-xl flex items-center justify-center text-text-muted hover:text-accent-neon transition-all"
-             >
-               <Plus size={20} />
-             </button>
-          </div>
         </div>
-      </section>
 
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-bg-void via-bg-void/90 to-transparent z-[200]">
-        <button 
-          type="submit" 
-          disabled={isSavingProfile}
-          className="w-full max-w-[400px] mx-auto h-14 bg-accent-neon text-bg-base rounded-2xl font-black uppercase tracking-widest shadow-[0_0_30px_rgba(0,255,65,0.3)] flex items-center justify-center active:scale-95 transition-all"
-        >
-          {isSavingProfile ? <Loader2 className="animate-spin" /> : t('admin.save_all_changes')}
-        </button>
+        <div style={{ padding: '14px 18px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* ── Mode selector ─────────────────────────────── */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+            {([
+              { id: 'payment', icon: '💳', title: 'PAIEMENT', sub: 'Abonnement ou achat unique' },
+              { id: 'broker',  icon: '🤝', title: 'BROKER',   sub: 'Inscription via lien affilié' },
+              { id: 'both',    icon: '⚡', title: 'LES DEUX', sub: 'Membre choisit' },
+            ] as { id: string; icon: string; title: string; sub: string }[]).map(opt => {
+              const active = (config.academy_model || 'payment') === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => handleChange('academy_model', opt.id)}
+                  style={{
+                    background: active ? 'rgba(255,214,10,0.08)' : 'rgba(255,255,255,0.02)',
+                    border: active ? '1.5px solid rgba(255,214,10,0.4)' : '1px solid rgba(255,255,255,0.07)',
+                    borderRadius: 14, padding: '12px 6px', cursor: 'pointer',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <span style={{ fontSize: 22 }}>{opt.icon}</span>
+                  <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 8, fontWeight: 700, letterSpacing: '0.1em', color: active ? '#FFD60A' : 'rgba(255,255,255,0.5)', textTransform: 'uppercase' }}>
+                    {opt.title}
+                  </span>
+                  {active && (
+                    <span style={{ fontSize: 7, color: 'rgba(255,214,10,0.6)', textAlign: 'center', lineHeight: 1.3 }}>
+                      {opt.sub}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* ── PAYMENT fields ────────────────────────────── */}
+          {(config.academy_model === 'payment' || config.academy_model === 'both' || !config.academy_model) && (
+            <div>
+              <div style={{ fontFamily: 'Space Mono, monospace', fontSize: 9, letterSpacing: '0.15em', color: 'rgba(255,214,10,0.7)', textTransform: 'uppercase', marginBottom: 10, fontWeight: 700 }}>
+                Type de facturation
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
+                {[
+                  { id: 'monthly', title: 'MENSUEL', sub: 'ABONNEMENT' },
+                  { id: 'lifetime', title: 'À VIE', sub: 'PAIEMENT UNIQUE' },
+                ].map(opt => {
+                  const active = (config.academy_duration_model || 'monthly') === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => handleChange('academy_duration_model', opt.id)}
+                      style={{
+                        background: active ? 'rgba(0,255,65,0.08)' : 'rgba(255,255,255,0.02)',
+                        border: active ? '1px solid #00FF41' : '1px solid rgba(255,255,255,0.07)',
+                        borderRadius: 14, padding: '16px 8px', cursor: 'pointer',
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                        transition: 'all 0.2s',
+                      }}
+                    >
+                      <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 800, color: '#FFFFFF', textTransform: 'uppercase' }}>
+                        {opt.title}
+                      </span>
+                      <span style={{ fontSize: 9, color: active ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.3)', textTransform: 'uppercase', fontWeight: 600 }}>
+                        {opt.sub}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div style={{ fontFamily: 'Space Mono, monospace', fontSize: 9, letterSpacing: '0.15em', color: 'rgba(255,214,10,0.7)', textTransform: 'uppercase', marginBottom: 10, fontWeight: 700 }}>
+                Prix configuré
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[
+                  { field: 'academy_price_1m',       label: '1 Mois',    tag: 'Mensuel',        tagColor: '#00FF41', show: (config.academy_duration_model || 'monthly') === 'monthly' },
+                  { field: 'academy_price_lifetime',  label: 'À Vie',     tag: 'Accès permanent', tagColor: '#FF6B6B', show: config.academy_duration_model === 'lifetime' },
+                ].filter(x => x.show).map(({ field, label, tag, tagColor }) => (
+                  <div key={field} style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
+                    borderRadius: 12, padding: '10px 14px',
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#F0F0F0' }}>{label}</div>
+                      <div style={{ fontSize: 9, color: tagColor, fontFamily: 'Space Mono, monospace', marginTop: 2 }}>{tag}</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        type="number"
+                        value={config[field] || ''}
+                        onChange={e => handleChange(field, e.target.value)}
+                        placeholder="0"
+                        style={{
+                          width: 80, background: 'rgba(0,0,0,0.4)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: 8, padding: '6px 10px',
+                          fontFamily: 'Space Mono, monospace', fontSize: 14, fontWeight: 700,
+                          color: '#FFFFFF', outline: 'none', textAlign: 'right',
+                        }}
+                      />
+                      <span style={{ fontFamily: 'Space Mono, monospace', fontSize: 10, color: 'rgba(255,255,255,0.3)', minWidth: 32 }}>
+                        {config.vip_currency || 'USDT'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── BROKER info ────────────────────────────────── */}
+          {(config.academy_model === 'broker' || config.academy_model === 'both') && (
+            <div style={{
+              background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.15)',
+              borderRadius: 12, padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'flex-start',
+            }}>
+              <span style={{ fontSize: 18, flexShrink: 0 }}>🔗</span>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#60A5FA', marginBottom: 4 }}>Accès par affiliation broker</div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', lineHeight: 1.6 }}>
+                  Le membre s'inscrit chez votre broker via votre lien affilié pour débloquer l'Academy. Configurez vos liens dans la section <strong style={{ color: 'rgba(255,255,255,0.7)' }}>Brokers Partenaires</strong> ci-dessus.
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
       </div>
-    </form>
+
+
+
+    </div>
   );
 };
 

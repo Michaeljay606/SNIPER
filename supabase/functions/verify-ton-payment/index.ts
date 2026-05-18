@@ -126,43 +126,95 @@ serve(async (req) => {
           )
         }
       } else if (flow === 'vip_access' || flow === 'academy_access') {
-        const section = flow === 'vip_access' ? 'signals' : 'academy';
+        const isVipFlow = flow === 'vip_access'
         
-        // Find member ID if not provided
-        let finalMemberId = member_id;
-        if (!finalMemberId && payer_telegram_id) {
-          const { data: member } = await supabase
-            .from('affiliates')
-            .select('id')
-            .eq('tenant_id', tenant_id)
-            .eq('telegram_id', payer_telegram_id)
-            .single();
-          finalMemberId = member?.id;
+        // ─── Helper: compute expiry ───────────────────────────
+        const computeExpiry = (planLabel: string | null): string | null => {
+          if (!planLabel) return null
+          const now = new Date()
+          if (planLabel.includes('1 MOIS') || planLabel.includes('1m')) {
+            return new Date(now.setDate(now.getDate() + 30)).toISOString()
+          }
+          if (planLabel.includes('2 MOIS') || planLabel.includes('2m')) {
+            return new Date(now.setDate(now.getDate() + 60)).toISOString()
+          }
+          if (planLabel.includes('1 AN') || planLabel.includes('1y')) {
+            return new Date(now.setFullYear(now.getFullYear() + 1)).toISOString()
+          }
+          return null // lifetime
         }
 
-        if (finalMemberId) {
-          await supabase.rpc('grant_member_access', {
-            p_tenant_id: tenant_id,
-            p_member_id: finalMemberId,
-            p_section:   section
-          });
+        const vipExpiry = computeExpiry(plan ?? null)
+
+        // ─── 1. Activate VIP in affiliates ────────────────────
+        const affiliateUpdate: Record<string, unknown> = {
+          is_vip: true,
+          status: 'active',
+          vip_expires_at: vipExpiry,
+        }
+        if (!isVipFlow) {
+          affiliateUpdate.has_academy_access = true
         }
 
-        // Notify member
+        await supabase
+          .from('affiliates')
+          .update(affiliateUpdate)
+          .eq('tenant_id', tenant_id)
+          .eq('telegram_id', payer_telegram_id)
+
+        // ─── 2. Log confirmed access_request ──────────────────
+        await supabase.from('access_requests').insert({
+          tenant_id,
+          member_telegram_id: payer_telegram_id,
+          request_type: isVipFlow ? 'vip_payment' : 'academy_payment',
+          access_target: isVipFlow ? 'signals' : 'academy',
+          payment_method: 'ton_usdt',
+          amount: amount_usdt,
+          currency: 'USDT',
+          tx_hash: txHash,
+          plan_label: plan ?? null,
+          status: 'confirmed',
+          confirmed_at: new Date().toISOString(),
+        })
+
+        // ─── 3. Notify member ─────────────────────────────────
         if (payer_telegram_id) {
           await fetch(
             `https://api.telegram.org/bot${Deno.env.get('TELEGRAM_BOT_TOKEN')}/sendMessage`,
             {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                chat_id:    payer_telegram_id,
+                chat_id: payer_telegram_id,
                 text:
-                  `🔐 *Accès ${section === 'signals' ? 'VIP' : 'Academy'} activé !*\n\n` +
+                  `🔐 *Accès VIP activé !*\n\n` +
                   `Paiement de ${amount_usdt} USDT confirmé.\n` +
-                  `Ouvrez l'app pour accéder au contenu.`,
+                  `Ouvrez l'app pour accéder au contenu VIP.`,
+                parse_mode: 'Markdown',
+              })
+            }
+          )
+        }
+
+        // ─── 4. Notify mentor ─────────────────────────────────
+        const { data: tenantRow } = await supabase
+          .from('tenants')
+          .select('telegram_id')
+          .eq('tenant_id', tenant_id)
+          .single()
+
+        if (tenantRow?.telegram_id) {
+          await fetch(
+            `https://api.telegram.org/bot${Deno.env.get('TELEGRAM_BOT_TOKEN')}/sendMessage`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: tenantRow.telegram_id,
+                text:
+                  `✅ *Paiement TON confirmé*\n\n` +
+                  `ID: ${payer_telegram_id} — ${amount_usdt} USDT\n` +
+                  `Accès VIP activé automatiquement.`,
                 parse_mode: 'Markdown',
               })
             }

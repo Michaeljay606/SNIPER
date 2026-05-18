@@ -1,0 +1,2 @@
+ALTER TABLE tenants
+ADD COLUMN IF NOT EXISTS social_whatsapp TEXT;

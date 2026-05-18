@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import type { ClientConfig } from './useClientConfig'
+import type { ClientConfig } from '../context/ConfigContext'
 
 export interface PlanFeatures {
   // Identity

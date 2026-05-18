@@ -1,7 +1,7 @@
 -- SQL Schema for MrTech Core Multi-Tenant SaaS on Supabase
 
 -- 0. Tenants Table (Master Config)
-CREATE TABLE tenants (
+CREATE TABLE IF NOT EXISTS tenants (
   tenant_id TEXT PRIMARY KEY,
   mentor_name TEXT NOT NULL,
   logo_url TEXT,
@@ -29,30 +29,34 @@ CREATE TABLE tenants (
   theme_color TEXT DEFAULT '#00FF41',
   social_links JSONB DEFAULT '[]'::jsonb,
   telegram_id BIGINT,
+  trading_mode TEXT DEFAULT 'MARKETS' CHECK (trading_mode IN ('MARKETS', 'BINARY')),
+  vip_model TEXT DEFAULT 'payment' CHECK (vip_model IN ('payment', 'broker', 'both')),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 1. Signals Table
-CREATE TABLE signals (
+CREATE TABLE IF NOT EXISTS signals (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   tenant_id TEXT REFERENCES tenants(tenant_id) ON DELETE CASCADE,
   pair TEXT NOT NULL,
-  type TEXT CHECK (type IN ('BUY', 'SELL')),
-  entry TEXT NOT NULL,
-  tp TEXT NOT NULL,
-  sl TEXT NOT NULL,
+  type TEXT,
+  entry TEXT,
+  tp TEXT,
+  sl TEXT,
+  martingale TEXT,
   status TEXT DEFAULT 'LIVE' CHECK (status IN ('LIVE', 'TP_HIT', 'SL_HIT', 'CLOSED', 'CANCELLED')),
   pips_gain INTEGER DEFAULT 0,
   analysis_url TEXT,
   result_image TEXT,
   is_vip BOOLEAN DEFAULT FALSE,
   rr TEXT DEFAULT '2.0',
+  trading_mode TEXT DEFAULT 'MARKETS' CHECK (trading_mode IN ('MARKETS', 'BINARY')),
   timestamp TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 2. Affiliates Table (Linked to Supabase Auth)
-CREATE TABLE affiliates (
+CREATE TABLE IF NOT EXISTS affiliates (
   id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
   tenant_id TEXT REFERENCES tenants(tenant_id) ON DELETE CASCADE,
   name TEXT NOT NULL,
@@ -70,7 +74,7 @@ CREATE TABLE affiliates (
 );
 
 -- 3. Academy Tables
-CREATE TABLE academy_modules (
+CREATE TABLE IF NOT EXISTS academy_modules (
   id SERIAL PRIMARY KEY,
   tenant_id TEXT REFERENCES tenants(tenant_id) ON DELETE CASCADE,
   title TEXT NOT NULL,
@@ -81,7 +85,7 @@ CREATE TABLE academy_modules (
   tag TEXT
 );
 
-CREATE TABLE academy_lessons (
+CREATE TABLE IF NOT EXISTS academy_lessons (
   id SERIAL PRIMARY KEY,
   tenant_id TEXT REFERENCES tenants(tenant_id) ON DELETE CASCADE,
   module_id INTEGER REFERENCES academy_modules(id) ON DELETE CASCADE,
@@ -93,7 +97,7 @@ CREATE TABLE academy_lessons (
 );
 
 -- 4. Live Positions Table
-CREATE TABLE live_positions (
+CREATE TABLE IF NOT EXISTS live_positions (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   tenant_id TEXT REFERENCES tenants(tenant_id) ON DELETE CASCADE,
   pair TEXT NOT NULL,
@@ -105,14 +109,14 @@ CREATE TABLE live_positions (
 );
 
 -- 5. Global Settings / Profile Content
-CREATE TABLE app_settings (
+CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,
   tenant_id TEXT REFERENCES tenants(tenant_id) ON DELETE CASCADE,
   value JSONB NOT NULL
 );
 
 -- 6. Mentor Badges
-CREATE TABLE mentor_badges (
+CREATE TABLE IF NOT EXISTS mentor_badges (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   tenant_id TEXT REFERENCES tenants(tenant_id) ON DELETE CASCADE,
   label TEXT NOT NULL,
@@ -136,25 +140,33 @@ ALTER TABLE mentor_badges ENABLE ROW LEVEL SECURITY;
 -- For now, we allow all operations to ensure functionality while maintaining tenant_id isolation in the app logic.
 
 -- Tenants
+DROP POLICY IF EXISTS "Allow all for tenants" ON tenants;
 CREATE POLICY "Allow all for tenants" ON tenants FOR ALL USING (true) WITH CHECK (true);
 
 -- Signals
+DROP POLICY IF EXISTS "Allow all for signals" ON signals;
 CREATE POLICY "Allow all for signals" ON signals FOR ALL USING (true) WITH CHECK (true);
 
 -- Affiliates
+DROP POLICY IF EXISTS "Allow all for affiliates" ON affiliates;
 CREATE POLICY "Allow all for affiliates" ON affiliates FOR ALL USING (true) WITH CHECK (true);
 
 -- Academy
+DROP POLICY IF EXISTS "Allow all for academy_modules" ON academy_modules;
 CREATE POLICY "Allow all for academy_modules" ON academy_modules FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow all for academy_lessons" ON academy_lessons;
 CREATE POLICY "Allow all for academy_lessons" ON academy_lessons FOR ALL USING (true) WITH CHECK (true);
 
 -- Live Positions
+DROP POLICY IF EXISTS "Allow all for live_positions" ON live_positions;
 CREATE POLICY "Allow all for live_positions" ON live_positions FOR ALL USING (true) WITH CHECK (true);
 
 -- App Settings
+DROP POLICY IF EXISTS "Allow all for app_settings" ON app_settings;
 CREATE POLICY "Allow all for app_settings" ON app_settings FOR ALL USING (true) WITH CHECK (true);
 
 -- Mentor Badges
+DROP POLICY IF EXISTS "Allow all for mentor_badges" ON mentor_badges;
 CREATE POLICY "Allow all for mentor_badges" ON mentor_badges FOR ALL USING (true) WITH CHECK (true);
 
 -- ---------------------------------------------------------
@@ -165,16 +177,55 @@ INSERT INTO storage.buckets (id, name, public) VALUES ('profile', 'profile', tru
 INSERT INTO storage.buckets (id, name, public) VALUES ('results', 'results', true) ON CONFLICT (id) DO NOTHING;
 
 -- Storage Policies (Allow public upload/read)
--- We use a simplified policy for public access. 
--- In production, you might want to restrict uploads to authenticated users.
+DROP POLICY IF EXISTS "Public Access" ON storage.objects;
 CREATE POLICY "Public Access" ON storage.objects FOR ALL USING ( bucket_id IN ('profile', 'results') ) WITH CHECK ( bucket_id IN ('profile', 'results') );
 
 -- Insert Default Tenant for Testing
-INSERT INTO tenants (tenant_id, mentor_name, plan) VALUES ('mrtech237', 'MR TECH', 'empire') ON CONFLICT (tenant_id) DO NOTHING;
+INSERT INTO tenants (tenant_id, mentor_name, plan, trading_mode) VALUES ('mrtech237', 'MR TECH', 'empire', 'MARKETS') ON CONFLICT (tenant_id) DO NOTHING;
 
 -- Insert Default Modules for the tenant
+-- Temporarily disable triggers to bypass tenant integrity checks during setup
+ALTER TABLE academy_modules DISABLE TRIGGER ALL;
+
 INSERT INTO academy_modules (id, tenant_id, title, description, sort_order) VALUES
 (1, 'mrtech237', 'Structure du Marché', 'Les bases de l''analyse technique', 1),
 (2, 'mrtech237', 'Psychologie & Discipline', 'Maîtriser ses émotions', 2),
 (3, 'mrtech237', 'Price Action Avancé', 'Concepts institutionnels', 3)
 ON CONFLICT (id) DO NOTHING;
+
+ALTER TABLE academy_modules ENABLE TRIGGER ALL;
+
+-- ---------------------------------------------------------
+-- MANDATORY GRANTS (Required from May 30 2026)
+-- ---------------------------------------------------------
+GRANT SELECT ON public.tenants TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.tenants TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.tenants TO service_role;
+
+GRANT SELECT ON public.signals TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.signals TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.signals TO service_role;
+
+GRANT SELECT ON public.affiliates TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.affiliates TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.affiliates TO service_role;
+
+GRANT SELECT ON public.academy_modules TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.academy_modules TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.academy_modules TO service_role;
+
+GRANT SELECT ON public.academy_lessons TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.academy_lessons TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.academy_lessons TO service_role;
+
+GRANT SELECT ON public.live_positions TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.live_positions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.live_positions TO service_role;
+
+GRANT SELECT ON public.app_settings TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.app_settings TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.app_settings TO service_role;
+
+GRANT SELECT ON public.mentor_badges TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.mentor_badges TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.mentor_badges TO service_role;
