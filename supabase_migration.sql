@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS tenants (
   referral_valid_until  timestamptz,
   created_at            timestamptz DEFAULT now()
 );
+GRANT SELECT                           ON public.tenants TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.tenants TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.tenants TO service_role;
 
 -- Config dynamique par tenant
 CREATE TABLE IF NOT EXISTS tenants_config (
@@ -51,6 +54,9 @@ CREATE TABLE IF NOT EXISTS tenants_config (
   theme                 jsonb DEFAULT '{}',
   updated_at            timestamptz DEFAULT now()
 );
+GRANT SELECT                           ON public.tenants_config TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.tenants_config TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.tenants_config TO service_role;
 
 -- Signaux
 CREATE TABLE IF NOT EXISTS signals (
@@ -79,6 +85,9 @@ CREATE TABLE IF NOT EXISTS signals (
   is_vip        boolean DEFAULT false,
   created_at    timestamptz DEFAULT now()
 );
+GRANT SELECT                           ON public.signals TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.signals TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.signals TO service_role;
 
 -- Leçons Academy
 CREATE TABLE IF NOT EXISTS lessons (
@@ -93,6 +102,9 @@ CREATE TABLE IF NOT EXISTS lessons (
   position      integer DEFAULT 0,
   created_at    timestamptz DEFAULT now()
 );
+GRANT SELECT                           ON public.lessons TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.lessons TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.lessons TO service_role;
 
 -- Modules Academy
 CREATE TABLE IF NOT EXISTS modules (
@@ -103,6 +115,9 @@ CREATE TABLE IF NOT EXISTS modules (
   position      integer DEFAULT 0,
   created_at    timestamptz DEFAULT now()
 );
+GRANT SELECT                           ON public.modules TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.modules TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.modules TO service_role;
 
 -- Membres
 CREATE TABLE IF NOT EXISTS members (
@@ -119,6 +134,9 @@ CREATE TABLE IF NOT EXISTS members (
   joined_at       timestamptz DEFAULT now(),
   UNIQUE(tenant_id, telegram_id)
 );
+GRANT SELECT                           ON public.members TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.members TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.members TO service_role;
 
 -- Accès membres (indépendant par section)
 CREATE TABLE IF NOT EXISTS user_subscriptions (
@@ -132,6 +150,9 @@ CREATE TABLE IF NOT EXISTS user_subscriptions (
   academy_is_lifetime   boolean DEFAULT false,
   updated_at            timestamptz DEFAULT now()
 );
+GRANT SELECT                           ON public.user_subscriptions TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.user_subscriptions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.user_subscriptions TO service_role;
 
 -- Vue accès calculée
 CREATE OR REPLACE VIEW member_access AS
@@ -163,6 +184,9 @@ CREATE TABLE IF NOT EXISTS payment_intents (
   expires_at      timestamptz,
   created_at      timestamptz DEFAULT now()
 );
+GRANT SELECT                           ON public.payment_intents TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.payment_intents TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.payment_intents TO service_role;
 
 -- Factures
 CREATE TABLE IF NOT EXISTS invoices (
@@ -178,6 +202,9 @@ CREATE TABLE IF NOT EXISTS invoices (
   intent_id       uuid REFERENCES payment_intents(id),
   issued_at       timestamptz DEFAULT now()
 );
+GRANT SELECT                           ON public.invoices TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.invoices TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.invoices TO service_role;
 
 -- Commissions parrainage
 CREATE TABLE IF NOT EXISTS referral_commissions (
@@ -191,6 +218,9 @@ CREATE TABLE IF NOT EXISTS referral_commissions (
                   CHECK (status IN ('pending','paid','expired')),
   earned_at       timestamptz DEFAULT now()
 );
+GRANT SELECT                           ON public.referral_commissions TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.referral_commissions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.referral_commissions TO service_role;
 
 -- Analytics
 CREATE TABLE IF NOT EXISTS platform_events (
@@ -201,6 +231,9 @@ CREATE TABLE IF NOT EXISTS platform_events (
   metadata      jsonb DEFAULT '{}',
   occurred_at   timestamptz DEFAULT now()
 );
+GRANT SELECT                           ON public.platform_events TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.platform_events TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.platform_events TO service_role;
 
 -- RLS sur toutes les tables
 ALTER TABLE signals              ENABLE ROW LEVEL SECURITY;

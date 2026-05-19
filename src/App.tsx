@@ -1,8 +1,17 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { PremiumLoader } from './components/PremiumLoader';
+
+// Lightweight fallback for React.Suspense (PremiumLoader is used as the boot screen in main.tsx)
+function SuspenseFallback() {
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: '#080B14', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <SniperLogo size={60} animated showOuter={true} />
+    </div>
+  );
+}
 
 // Core Layouts & Components
+import SniperLogo from './assets/SniperLogo';
 import StudentShell from './layouts/StudentShell';
 import DashboardTab from './components/tabs/DashboardTab';
 import AcademyTab from './components/tabs/AcademyTab';
@@ -45,7 +54,7 @@ export default function App() {
   }, [location.pathname]);
 
   return (
-    <Suspense fallback={<PremiumLoader isVisible={true} message="Chargement..." />}>
+    <Suspense fallback={<SuspenseFallback />}>
       <Routes>
         {/* Default route redirects to 404 or a landing if tenant not specified */}
         <Route path="/" element={<Navigate to="/404" replace />} />

@@ -1,5 +1,5 @@
 -- ============================================================
--- EPHATA TECH — Access Requests Sprint Migration
+-- Sniper Terminal — Access Requests Sprint Migration
 -- Run this in your Supabase SQL Editor
 -- ============================================================
 

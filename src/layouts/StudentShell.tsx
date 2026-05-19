@@ -8,6 +8,7 @@ import { useClientConfig } from '../hooks/useClientConfig';
 import { TradingModeProvider } from '../context/TradingModeContext';
 import MasterControlPanel from '../components/MasterControlPanel';
 import { useUserRole } from '../hooks/useUserRole';
+import SniperLogo from '../assets/SniperLogo';
 
 function CheckCircleIcon({ size, className }: { size: number; className?: string }) {
   return (
@@ -121,11 +122,11 @@ export default function StudentShell() {
         {/* Row 1 — System bar */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--muted)', textTransform: 'uppercase' }}>
-            <span style={{ width: 6, height: 6, background: 'var(--green)', borderRadius: '50%', boxShadow: '0 0 8px rgba(0,255,65,0.8)', animation: 'pulse-glow 2s infinite', display: 'inline-block' }} />
-            EPHATA TERMINAL
+            <SniperLogo size={16} animated={false} />
+            SNIPER TERMINAL
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.1em', color: 'var(--muted)', textTransform: 'uppercase' }}>
-            EPHATA-V2.4
+            SNIPER-V2.4
             <span style={{ display: 'flex', gap: 2, alignItems: 'flex-end' }}>
               {[4, 7, 5, 9].map((h, i) => (
                 <span key={i} style={{ width: 3, height: h, background: i < 3 ? 'var(--green)' : 'var(--subtle)', borderRadius: 1, display: 'inline-block' }} />
@@ -138,7 +139,7 @@ export default function StudentShell() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h1 style={{ fontFamily: 'var(--mono)', fontSize: 20, fontWeight: 700, color: 'var(--text)', lineHeight: 1, margin: 0, textTransform: 'uppercase' }}>
-              {tenantConfig?.mentorName || 'EPHATA'}
+              {tenantConfig?.mentorName || 'SNIPER'}
             </h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3 }}>
               <span style={{ width: 5, height: 5, background: 'var(--green)', borderRadius: '50%', display: 'inline-block' }} />
@@ -172,10 +173,11 @@ export default function StudentShell() {
       <nav className="floating-dock" style={{ paddingBottom: 'calc(12px + env(safe-area-inset-bottom, 0px))' }}>
         {/* POWERED BY strip */}
         <div
-          style={{ fontFamily: 'var(--mono)', fontSize: 8, opacity: 0.2, textAlign: 'center', letterSpacing: '0.1em', display: 'block', paddingBottom: 6, cursor: 'default', userSelect: 'none', textTransform: 'uppercase' }}
+          style={{ fontFamily: 'var(--mono)', fontSize: 8, opacity: 0.2, textAlign: 'center', letterSpacing: '0.1em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, paddingBottom: 6, cursor: 'default', userSelect: 'none', textTransform: 'uppercase' }}
           {...longPress}
         >
-          POWERED BY EPHATA TECH
+          <SniperLogo size={10} animated={false} />
+          <span>SNIPER</span>
         </div>
 
         {/* Nav buttons */}
@@ -253,7 +255,7 @@ export default function StudentShell() {
               <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>À partir de</span>
               <span style={{ fontFamily: 'var(--mono)', fontSize: 24, fontWeight: 700 }}>49$/<span style={{ fontSize: 14 }}>mois</span></span>
             </div>
-            <a href="https://ephatatech.io" target="_blank" rel="noopener noreferrer"
+            <a href="https://sniper.ephatatech.com" target="_blank" rel="noopener noreferrer"
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '14px 0', background: 'var(--green)', color: '#000', borderRadius: 12, fontFamily: 'var(--mono)', fontWeight: 800, fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.06em', boxShadow: '0 0 20px rgba(0,255,65,0.4)', textDecoration: 'none' }}>
               Créer mon app <ArrowRight size={18} />
             </a>

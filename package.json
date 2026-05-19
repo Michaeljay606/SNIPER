@@ -1,6 +1,6 @@
 {
-  "name": "ephata-tech-terminal",
-  "description": "Ephata Tech Trading Terminal",
+  "name": "sniper-terminal",
+  "description": "Sniper Trading Terminal",
   "private": true,
   "version": "0.0.0",
   "type": "module",

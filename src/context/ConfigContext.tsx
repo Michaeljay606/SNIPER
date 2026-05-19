@@ -1,8 +1,10 @@
-import React, { createContext, useContext, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import SniperLogo from '../assets/SniperLogo';
 import { PremiumLoader } from '../components/PremiumLoader';
+
 import { TENANT_ID as STATIC_TENANT_ID } from '../config';
 
 const getEffectiveTenantId = () => {
@@ -78,7 +80,7 @@ export interface ClientConfig {
 }
 
 const DEFAULT_CONFIG: ClientConfig = {
-  mentorName: 'Ephata Mentor',
+  mentorName: 'Sniper Mentor',
   mentorPhotoUrl: '',
   themeColor: '#00FF41',
   licenceStatus: 'active',
@@ -226,6 +228,7 @@ const rowToConfig = (row: any): ClientConfig => ({
 });
 
 export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [bootAnimDone, setBootAnimDone] = useState(false);
   const queryClient = useQueryClient();
   const location = useLocation();
 
@@ -237,6 +240,9 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     return STATIC_TENANT_ID;
   }, [location.pathname]);
+
+  // On récupère instantanément le dernier nom connu (cache) pour éviter le clignotement
+  const cachedMentorName = localStorage.getItem(`mentorName_${tenant_id}`);
 
   const { data: config, isLoading, isError, error } = useQuery({
     queryKey: ['config', tenant_id],
@@ -287,14 +293,31 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
   }, [queryClient, tenant_id]);
 
+  // Met à jour le cache instantané dès qu'on a le nom depuis la DB
+  useEffect(() => {
+    if (config?.mentorName) {
+      localStorage.setItem(`mentorName_${tenant_id}`, config.mentorName);
+    }
+  }, [config?.mentorName, tenant_id]);
+
   const value = useMemo(() => ({
     config: config || null,
     loading: isLoading,
     refresh: async () => { await queryClient.invalidateQueries({ queryKey: ['config', tenant_id] }); },
   }), [config, isLoading, tenant_id, queryClient]);
 
+  // 1. Force the premium 6.5s boot sequence on initial load
+  if (!bootAnimDone) {
+    return <PremiumLoader onComplete={() => setBootAnimDone(true)} tenantName={config?.mentorName || cachedMentorName || undefined} />;
+  }
+
+  // 2. If boot animation is done but data is still fetching, show a subtle spinner
   if (isLoading) {
-    return <PremiumLoader isVisible={true} message="Initialisation..." />;
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: '#04070A', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <SniperLogo size={60} animated showOuter={true} />
+      </div>
+    );
   }
 
   if (isError) {

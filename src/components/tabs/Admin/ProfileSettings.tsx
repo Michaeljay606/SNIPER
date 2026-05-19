@@ -13,7 +13,7 @@ interface ProfileSettingsProps {
 
 // Only the columns that actually exist in the 'tenants' table
 const EDITABLE_FIELDS: Record<string, { label: string; type: string; placeholder?: string }> = {
-  mentor_name:         { label: 'Nom du Mentor / Marque',  type: 'text',   placeholder: 'Ex: Ephata Tech' },
+  mentor_name:         { label: 'Nom du Mentor / Marque',  type: 'text',   placeholder: 'Ex: Sniper' },
   speciality:          { label: 'Spécialité',               type: 'text',   placeholder: 'Ex: Expert Trading Forex' },
   years_exp:           { label: 'Années d\'expérience',     type: 'text',   placeholder: 'Ex: 5+' },
   traders_count:       { label: 'Nombre de traders',        type: 'text',   placeholder: 'Ex: 1200+' },

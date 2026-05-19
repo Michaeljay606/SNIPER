@@ -415,7 +415,7 @@ export default function ProfileTab({ tenant_id, tenantProfile, config, isAdminUs
   const PoweredBy = () => (
     <div style={{ padding: '24px 0 12px', display: 'flex', justifyContent: 'center', opacity: 0.2 }}>
       <span style={{ fontFamily: 'Space Mono', fontSize: '7px', fontWeight: 800, letterSpacing: '0.25em', color: 'var(--muted)' }}>
-        POWERED BY EPHATA TECH
+        POWERED BY SNIPER
       </span>
     </div>
   );

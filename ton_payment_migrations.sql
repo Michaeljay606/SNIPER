@@ -1,5 +1,5 @@
 -- ============================================================
--- Ephata Tech — TON Payment Integration Migration
+-- Sniper Terminal — TON Payment Integration Migration
 -- Run this entire script in your Supabase SQL Editor
 -- ============================================================
 
@@ -25,6 +25,11 @@ CREATE TABLE IF NOT EXISTS payment_transactions (
   confirmed_at      TIMESTAMPTZ,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Mandatory grants (42501 prevention)
+GRANT SELECT                           ON public.payment_transactions TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.payment_transactions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE   ON public.payment_transactions TO service_role;
 
 -- 3. Index for fast tenant + status lookups (used by MasterControlPanel)
 CREATE INDEX IF NOT EXISTS idx_payment_transactions_tenant_id

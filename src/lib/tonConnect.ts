@@ -1,5 +1,5 @@
 import { TonConnectUI } from '@tonconnect/ui-react'
 
 export const tonConnectUI = new TonConnectUI({
-  manifestUrl: 'https://ephata-tech.vercel.app/tonconnect-manifest.json',
+  manifestUrl: 'https://sniper.ephatatech.com/tonconnect-manifest.json',
 })

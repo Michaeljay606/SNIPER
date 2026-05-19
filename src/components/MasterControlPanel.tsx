@@ -185,7 +185,7 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
         <header style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ color: '#00FF41', fontSize: 14, fontWeight: 700, letterSpacing: '0.2em' }}>
-              EPHATA TECH
+              SNIPER
             </div>
             <div style={{ fontSize: 9, color: 'rgba(0,255,65,0.5)', display: 'flex', alignItems: 'center', gap: 4 }}>
               <Shield size={10} /> ···{OPERATOR_ID?.toString()?.slice(-4) || '????'}

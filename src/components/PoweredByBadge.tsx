@@ -26,7 +26,7 @@ export default function PoweredByBadge() {
             </span>
           </div>
           <span className="text-[12px] font-black italic uppercase text-[var(--accent-neon)] leading-none">
-            Ephata Tech
+            Sniper
           </span>
         </button>
       </div>
@@ -72,7 +72,7 @@ export default function PoweredByBadge() {
               <span className="text-2xl font-black font-mono text-[var(--text-primary)]">49$/<span className="text-sm">mois</span></span>
             </div>
 
-            <a href="https://ephatatech.io" target="_blank" rel="noopener noreferrer" className="block w-full py-4 bg-[var(--accent-neon)] text-black rounded-xl text-center font-black uppercase tracking-widest text-sm hover:scale-[1.02] active:scale-95 transition-transform flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(0,255,65,0.4)]">
+            <a href="https://sniper.ephatatech.com" target="_blank" rel="noopener noreferrer" className="block w-full py-4 bg-[var(--accent-neon)] text-black rounded-xl text-center font-black uppercase tracking-widest text-sm hover:scale-[1.02] active:scale-95 transition-transform flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(0,255,65,0.4)]">
               Créer mon app <ArrowRight size={18} />
             </a>
             
