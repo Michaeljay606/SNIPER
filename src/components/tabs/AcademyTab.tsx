@@ -232,9 +232,21 @@ const AcademyTab = () => {
       {/* MODULES LIST */}
       <div className="modules-list">
         {isLoading && (
-          <div className="text-center py-10">
-            <div className="animate-spin rounded-full h-6 w-6 border-2 border-[var(--green)] border-t-transparent mx-auto mb-3" />
-            <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{t('common.loading')}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, margin: '0 14px' }}>
+            {[1, 2, 3].map((i) => (
+              <div key={i} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '12px', padding: '16px', position: 'relative', overflow: 'hidden', opacity: 0.4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                    <div className="shimmer" style={{ width: 36, height: 36, borderRadius: 8 }} />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div className="shimmer" style={{ width: 140, height: 12, borderRadius: 4 }} />
+                      <div className="shimmer" style={{ width: 90, height: 8, borderRadius: 4 }} />
+                    </div>
+                  </div>
+                  <div className="shimmer" style={{ width: 18, height: 18, borderRadius: '50%' }} />
+                </div>
+              </div>
+            ))}
           </div>
         )}
 

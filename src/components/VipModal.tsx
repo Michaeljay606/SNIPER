@@ -4,6 +4,7 @@ import { X, ChevronRight, Zap, Check, Loader, ShieldCheck, AlertCircle } from 'l
 import { useTonPayment } from '../hooks/useTonPayment';
 import { useConfig } from '../context/ConfigContext';
 import { supabase } from '../lib/supabase';
+import { triggerNotification } from '../lib/notifications';
 
 interface VipModalProps {
   config: any;
@@ -80,6 +81,19 @@ const VipModal: React.FC<VipModalProps> = ({ config, tenantProfile = config, onC
         plan_label: plan?.label,
         status: 'pending'
       }]);
+
+      // Trigger notification to the mentor
+      await triggerNotification({
+        type: 'new_payment_request',
+        tenant_id: tenantProfile?.tenant_id || tenantProfile?.id,
+        target_type: 'mentor',
+        data: {
+          username: user?.telegramUsername || user?.name || 'inconnu',
+          plan: plan?.label || 'Plan',
+          amount: plan?.price || '0',
+          currency
+        }
+      });
     } catch (e) {
       console.error("Failed to insert access_request", e);
     }
@@ -147,6 +161,18 @@ const VipModal: React.FC<VipModalProps> = ({ config, tenantProfile = config, onC
         broker_account_id: brokerId,
         status: 'pending'
       }]);
+
+      // Trigger notification to the mentor
+      await triggerNotification({
+        type: 'new_broker_request',
+        tenant_id: tenantProfile?.tenant_id || tenantProfile?.id,
+        target_type: 'mentor',
+        data: {
+          username: user?.telegramUsername || user?.name || 'inconnu',
+          broker: selectedBroker.name,
+          account_id: brokerId
+        }
+      });
       
       if (error) throw error;
       setIsSubmitted(true);

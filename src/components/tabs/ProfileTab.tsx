@@ -1081,6 +1081,72 @@ export default function ProfileTab({ tenant_id, tenantProfile, config, isAdminUs
       </div>
       <PoweredBy />
 
+      {/* BLOCK 8B - NOTIFICATION PREFERENCES */}
+      {currentUser && (
+        <>
+          {renderSectionHeader("PRÉFÉRENCES NOTIFICATIONS")}
+          <div style={{ margin: '0 14px 16px', background: 'var(--glass)', border: '1px solid var(--subtle)', borderRadius: '12px', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {[
+              { key: 'notif_signals', label: 'Alertes Nouveaux Signaux', desc: 'Recevoir une alerte lors de la publication de signaux.' },
+              { key: 'notif_academy', label: 'Alertes Academy', desc: 'Recevoir une alerte quand une nouvelle leçon est publiée.' },
+              { key: 'notif_vip', label: 'Alertes Expirations VIP', desc: 'Recevoir des rappels avant l\'expiration de votre accès.' },
+            ].map((pref) => {
+              const isEnabled = currentUser[pref.key] !== false; // default true
+              
+              const handleToggle = async () => {
+                try {
+                  const { error } = await supabase
+                    .from('affiliates')
+                    .update({ [pref.key]: !isEnabled })
+                    .eq('id', currentUser.id);
+                  if (error) throw error;
+                } catch (err: any) {
+                  console.error('Toggle preference error:', err);
+                }
+              };
+
+              return (
+                <div key={pref.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ flex: 1, paddingRight: '12px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#FFF' }}>{pref.label}</div>
+                    <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '2px', lineHeight: 1.3 }}>{pref.desc}</div>
+                  </div>
+                  
+                  <div 
+                    onClick={handleToggle}
+                    style={{
+                      width: '44px',
+                      height: '24px',
+                      borderRadius: '12px',
+                      background: isEnabled ? 'rgba(0,255,65,0.15)' : 'rgba(255,255,255,0.08)',
+                      border: isEnabled ? '1px solid var(--green)' : '1px solid rgba(255,255,255,0.12)',
+                      position: 'relative',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      flexShrink: 0
+                    }}
+                  >
+                    <div 
+                      style={{
+                        width: '18px',
+                        height: '18px',
+                        borderRadius: '50%',
+                        background: isEnabled ? 'var(--green)' : 'rgba(255,255,255,0.4)',
+                        position: 'absolute',
+                        top: '2px',
+                        left: isEnabled ? '22px' : '2px',
+                        transition: 'all 0.2s',
+                        boxShadow: isEnabled ? '0 0 8px rgba(0,255,65,0.6)' : 'none'
+                      }} 
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
       {/* BLOCK 9 - MEMBER CARD */}
       {currentUser && (
         <>

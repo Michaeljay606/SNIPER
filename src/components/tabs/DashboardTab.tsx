@@ -1059,6 +1059,49 @@ const DashboardTab = () => {
         ))}
       </div>
 
+      {/* ─── SKELETON LOADER EN COURS DE CHARGEMENT ─── */}
+      {isOverallLoading && (
+        <div style={{ padding: '0 14px', marginBottom: 10 }}>
+          <div className="section-hdr" style={{ padding: '14px 0 10px' }}>
+            <div className="s-line" style={{ background: 'rgba(255,255,255,0.05)', boxShadow: 'none' }} />
+            <span className="s-title" style={{ color: 'rgba(255,255,255,0.2)' }}>SYNCHRONISATION TERMINAL</span>
+            <span className="s-count" style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: 0.5 }}>
+              <span className="live-dot" style={{ background: 'rgba(255,255,255,0.2)' }} />
+              CONNEXION...
+            </span>
+          </div>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[1, 2].map((i) => (
+              <div key={i} className="sig-card" style={{ opacity: 0.35, border: '1px solid rgba(255,255,255,0.05)', position: 'relative', overflow: 'hidden' }}>
+                <div className="corner c-tl" style={{ borderColor: 'rgba(255,255,255,0.1)' }} />
+                <div className="corner c-tr" style={{ borderColor: 'rgba(255,255,255,0.1)' }} />
+                <div className="corner c-bl" style={{ borderColor: 'rgba(255,255,255,0.1)' }} />
+                <div className="corner c-br" style={{ borderColor: 'rgba(255,255,255,0.1)' }} />
+                
+                <div className="card-top" style={{ marginTop: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <div className="shimmer" style={{ width: 60, height: 14, borderRadius: 4 }} />
+                    <div className="shimmer" style={{ width: 45, height: 14, borderRadius: 4 }} />
+                  </div>
+                  <div className="shimmer" style={{ width: 35, height: 10, borderRadius: 4 }} />
+                </div>
+                
+                <div className="entry-hero" style={{ padding: '12px 0' }}>
+                  <div className="shimmer" style={{ width: 110, height: 22, borderRadius: 6, margin: '0 auto' }} />
+                  <div className="shimmer" style={{ width: 70, height: 8, borderRadius: 4, margin: '6px auto 0' }} />
+                </div>
+                
+                <div className="card-bottom" style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                  <div className="shimmer" style={{ width: 90, height: 8, borderRadius: 4 }} />
+                  <div className="shimmer" style={{ width: 40, height: 8, borderRadius: 4 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ─── ZONE LIVE & ALERTES ────────────────────── */}
       {(!isOverallLoading && (liveSignals.length > 0 || watchSignals.length > 0)) && (
         <div style={{ padding: '0 14px', marginBottom: 10 }}>
@@ -1107,9 +1150,7 @@ const DashboardTab = () => {
 
       {/* ─── ZONE HISTORIQUE (TP/SL/ANNULÉ) ─────────── */}
       <div style={{ paddingBottom: 30 }}>
-        {isOverallLoading ? (
-          <div style={{ textAlign: 'center', padding: '40px 0', opacity: 0.5, fontFamily: 'var(--mono)', fontSize: 10 }}>CHARGEMENT...</div>
-        ) : (liveSignals.length === 0 && watchSignals.length === 0 && historicalKeys.length === 0) ? (
+        {isOverallLoading ? null : (liveSignals.length === 0 && watchSignals.length === 0 && historicalKeys.length === 0) ? (
           <div style={{ textAlign: 'center', padding: '100px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <Activity size={32} style={{ opacity: 0.3, marginBottom: 16, color: 'var(--text-primary)' }} />
             <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)', fontStyle: 'italic', marginBottom: 8 }}>

@@ -31,6 +31,7 @@ export interface ClientConfig {
   signalsDurationModel: 'fixed' | 'flexible';
   academyDurationModel: 'fixed' | 'flexible';
   tradingMode: 'forex' | 'binary' | 'both';
+  trialEndsAt: string | null;
   // Branding images
   logo_url: string;
   cover_image_url: string;
@@ -94,6 +95,7 @@ const DEFAULT_CONFIG: ClientConfig = {
   signalsDurationModel: 'flexible',
   academyDurationModel: 'flexible',
   tradingMode: 'forex',
+  trialEndsAt: null,
   logo_url: '',
   cover_image_url: '',
   vision_photo_url: '',
@@ -138,12 +140,14 @@ interface ConfigContextType {
   config: ClientConfig | null;
   loading: boolean;
   refresh: () => Promise<void>;
+  isError?: boolean;
 }
 
 const ConfigContext = createContext<ConfigContextType>({
   config: null,
   loading: true,
   refresh: async () => {},
+  isError: false,
 });
 
 const applyTheme = (mode: string, themeColor: string) => {
@@ -179,6 +183,7 @@ const rowToConfig = (row: any): ClientConfig => ({
     if (raw === 'BOTH') return 'both';
     return 'forex'; // 'MARKETS', 'forex', or anything else
   })() as 'forex' | 'binary' | 'both',
+  trialEndsAt: row.trial_ends_at || null,
   // Branding images — ALL included so they survive refresh
   logo_url: row.logo_url || '',
   cover_image_url: row.cover_image_url || '',
@@ -304,7 +309,8 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     config: config || null,
     loading: isLoading,
     refresh: async () => { await queryClient.invalidateQueries({ queryKey: ['config', tenant_id] }); },
-  }), [config, isLoading, tenant_id, queryClient]);
+    isError: !!isError,
+  }), [config, isLoading, tenant_id, queryClient, isError]);
 
   // 1. Force the premium 6.5s boot sequence on initial load
   if (!bootAnimDone) {
@@ -315,22 +321,7 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   if (isLoading) {
     return (
       <div style={{ position: 'fixed', inset: 0, background: '#04070A', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <SniperLogo size={60} animated showOuter={true} />
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#080B14', color: '#FFF', textAlign: 'center', padding: '20px' }}>
-        <h2 style={{ color: '#FF3B30', marginBottom: '10px' }}>Erreur de Configuration</h2>
-        <p style={{ opacity: 0.6, fontSize: '14px', marginBottom: '20px' }}>Impossible de charger les paramètres pour {tenant_id}</p>
-        <button 
-          onClick={() => window.location.reload()}
-          style={{ background: 'rgba(0,255,65,0.1)', border: '1px solid var(--green)', color: 'var(--green)', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer' }}
-        >
-          Réessayer
-        </button>
+        <SniperLogo size={60} animated={true} />
       </div>
     );
   }

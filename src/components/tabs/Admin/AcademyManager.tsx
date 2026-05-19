@@ -4,6 +4,7 @@ import { GraduationCap, Plus, Edit, Trash2, Save, ChevronUp, ChevronDown, Video,
 import { supabase } from '../../../lib/supabase';
 import { GlassCard, NeonButton } from '../../ui/Shared';
 import { useClientConfig } from '../../../hooks/useClientConfig';
+import { triggerNotification } from '../../../lib/notifications';
 
 interface AcademyManagerProps {
   onShowToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
@@ -61,6 +62,16 @@ const AcademyManager = ({ onShowToast }: AcademyManagerProps) => {
       onShowToast(`Erreur: ${error.message}`, 'error');
     } else {
       onShowToast(editingModuleData.id ? 'Module mis à jour ✓' : 'Module créé ✓', 'success');
+
+      if (!editingModuleData.id) {
+        triggerNotification({
+          type: 'new_module',
+          tenant_id: TENANT_ID,
+          target_type: 'all_members',
+          data: { title: editingModuleData.title }
+        }).catch(err => console.error('Failed to send new_module notification:', err));
+      }
+
       setIsEditingModule(false);
       fetchData();
     }
@@ -112,6 +123,20 @@ const AcademyManager = ({ onShowToast }: AcademyManagerProps) => {
       onShowToast(`Erreur: ${error.message}`, 'error');
     } else {
       onShowToast(editingLessonData.id ? 'Leçon mise à jour ✓' : 'Leçon créée ✓', 'success');
+
+      if (!editingLessonData.id) {
+        const mod = modules.find(m => m.id === Number(editingLessonData.module_id));
+        triggerNotification({
+          type: 'new_lesson',
+          tenant_id: TENANT_ID,
+          target_type: editingLessonData.is_free ? 'all_members' : 'vip_members',
+          data: {
+            title: editingLessonData.title,
+            module_title: mod?.title || 'Academy',
+          }
+        }).catch(err => console.error('Failed to send new_lesson notification:', err));
+      }
+
       setIsEditingLesson(false);
       fetchData();
     }

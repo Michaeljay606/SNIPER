@@ -51,7 +51,8 @@ DECLARE
     'plan_defaults',
     'referral_commissions',
     'platform_events',
-    'timeline_events'
+    'timeline_events',
+    'notifications'
   ];
 
 BEGIN

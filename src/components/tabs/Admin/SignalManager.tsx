@@ -4,10 +4,11 @@ import { supabase } from '../../../lib/supabase';
 import { useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useClientConfig } from '../../../hooks/useClientConfig';
+import { triggerNotification } from '../../../lib/notifications';
 
 interface SignalManagerProps {
   liveSignals: any[];
-  setLiveSignals: (sigs: any[]) => void;
+  setLiveSignals: React.Dispatch<React.SetStateAction<any[]>>;
   onShowToast: (msg: string, type: 'success' | 'error' | 'warning') => void;
 }
 
@@ -200,6 +201,23 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
       }).eq('id', id);
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: ['signals', tid] });
+
+      // Trigger notification for watch signal activation
+      const { data: sigDetails } = await supabase.from('signals').select('*').eq('id', id).single();
+      if (sigDetails) {
+        triggerNotification({
+          type: 'new_signal',
+          tenant_id: tid,
+          target_type: sigDetails.is_vip ? 'vip_members' : 'all_members',
+          data: {
+            signal_id: id,
+            pair: sigDetails.pair,
+            type: sigDetails.direction,
+            direction: sigDetails.direction,
+            is_vip: sigDetails.is_vip,
+          }
+        });
+      }
     } catch (e: any) { 
       console.error('Activate error:', e);
       onShowToast(`Erreur d'activation: ${e.message || 'Inconnue'}`, 'error');
@@ -264,9 +282,24 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
         setEditingId(null);
       } else {
         payload.timestamp = new Date().toISOString();
-        const { error } = await supabase.from('signals').insert(payload);
+        const { data, error } = await supabase.from('signals').insert(payload).select('id').single();
         if (error) throw error;
         onShowToast(isWatch ? 'Zone d\'alerte publiée !' : 'Signal publié !', 'success');
+
+        if (signalType === 'LIVE' && data) {
+          triggerNotification({
+            type: 'new_signal',
+            tenant_id: tid,
+            target_type: isVip ? 'vip_members' : 'all_members',
+            data: {
+              signal_id: data.id,
+              pair: pair.toUpperCase(),
+              type: direction,
+              direction: direction,
+              is_vip: isVip,
+            }
+          });
+        }
       }
       setPair(''); setEntry(''); setEntryLow(''); setEntryHigh('');
       setSl(''); setTp(''); setTp2(''); setTp3(''); setAnalysisNote('');
@@ -298,6 +331,28 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
       const { error } = await supabase.from('signals').update({ status, rr }).eq('id', id);
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: ['signals', tid] });
+
+      // Trigger notification for status changes
+      const { data: sigDetails } = await supabase.from('signals').select('*').eq('id', id).single();
+      if (sigDetails) {
+        let notifType = '';
+        if (status === 'tp') notifType = 'signal_tp_hit';
+        else if (status === 'sl') notifType = 'signal_sl_hit';
+        else if (status === 'cancelled') notifType = 'signal_cancelled';
+
+        if (notifType) {
+          triggerNotification({
+            type: notifType,
+            tenant_id: tid,
+            target_type: sigDetails.is_vip ? 'vip_members' : 'all_members',
+            data: {
+              signal_id: id,
+              pair: sigDetails.pair,
+              pips: rr || '',
+            }
+          });
+        }
+      }
     } catch (e: any) { 
       onShowToast(`Erreur de sync: ${e.message}`, 'error');
       refresh();

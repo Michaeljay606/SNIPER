@@ -3,12 +3,13 @@ import { Activity, GraduationCap, Calculator, User, ShieldCheck, X, Zap, ArrowRi
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useLongPress } from '../hooks/useLongPress';
-import MentorTour from '../components/MentorTour';
 import { useClientConfig } from '../hooks/useClientConfig';
 import { TradingModeProvider } from '../context/TradingModeContext';
 import MasterControlPanel from '../components/MasterControlPanel';
 import { useUserRole } from '../hooks/useUserRole';
 import SniperLogo from '../assets/SniperLogo';
+import { AnimatePresence } from 'framer-motion';
+import NotificationBell from '../components/NotificationBell';
 
 function CheckCircleIcon({ size, className }: { size: number; className?: string }) {
   return (
@@ -26,7 +27,6 @@ export default function StudentShell() {
   const navigate = useNavigate();
   const { isAdmin, isLoading: roleLoading } = useUserRole();
   const [showUpgradeSheet, setShowUpgradeSheet] = useState(false);
-  const [showTour, setShowTour] = useState(false);
   const [showMasterControl, setShowMasterControl] = useState(false);
 
   // Check for mode=master in URL
@@ -43,12 +43,6 @@ export default function StudentShell() {
       }
     }
   }, [location.search]);
-
-  useEffect(() => {
-    if (tenantConfig && tenantConfig.onboarding_completed === false) {
-      setShowTour(true);
-    }
-  }, [tenantConfig]);
 
   useEffect(() => {
     if (!roleLoading && !isAdmin && location.pathname.includes('/admin')) {
@@ -72,14 +66,6 @@ export default function StudentShell() {
   if (isAdmin) navItems.push({ path: 'admin', icon: ShieldCheck, label: 'Admin' });
 
   const { refresh } = useClientConfig();
-
-  const handleTourComplete = async () => {
-    setShowTour(false);
-    if (tenant_id) {
-      const { error } = await supabase.from('tenants').update({ onboarding_completed: true, updated_at: new Date().toISOString() }).eq('tenant_id', tenant_id);
-      if (!error) refresh();
-    }
-  };
 
   const [time, setTime] = useState(new Date().toLocaleTimeString('fr-FR', { hour12: false }));
   useEffect(() => {
@@ -146,21 +132,26 @@ export default function StudentShell() {
               <span style={{ fontFamily: 'var(--mono)', fontSize: 8, letterSpacing: '0.14em', color: 'var(--muted)', textTransform: 'uppercase' }}>MENTOR ACCESS</span>
             </div>
           </div>
-          <div 
-            onClick={() => navigate(`/app/${tenant_id}/profile`)}
-            style={{ width: 36, height: 36, borderRadius: '50%', border: '2px solid var(--green)', overflow: 'hidden', background: 'var(--elevated)', flexShrink: 0, boxShadow: '0 0 12px rgba(0,255,65,0.25)', cursor: 'pointer' }}
-          >
-            {tenantConfig?.logo_url || tenantConfig?.mentorPhotoUrl ? (
-              <img
-                src={tenantConfig?.logo_url || tenantConfig?.mentorPhotoUrl}
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                alt="mentor"
-              />
-            ) : (
-              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.05)', color: 'var(--green)', fontFamily: 'var(--mono)', fontSize: '14px', fontWeight: 700 }}>
-                {(tenantConfig?.mentorName || 'M').charAt(0).toUpperCase()}
-              </div>
-            )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {/* Notification Bell */}
+            <NotificationBell tenantId={tenant_id || ''} />
+
+            <div 
+              onClick={() => navigate(`/app/${tenant_id}/profile`)}
+              style={{ width: 36, height: 36, borderRadius: '50%', border: '2px solid var(--green)', overflow: 'hidden', background: 'var(--elevated)', flexShrink: 0, boxShadow: '0 0 12px rgba(0,255,65,0.25)', cursor: 'pointer' }}
+            >
+              {tenantConfig?.logo_url || tenantConfig?.mentorPhotoUrl ? (
+                <img
+                  src={tenantConfig?.logo_url || tenantConfig?.mentorPhotoUrl}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  alt="mentor"
+                />
+              ) : (
+                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.05)', color: 'var(--green)', fontFamily: 'var(--mono)', fontSize: '14px', fontWeight: 700 }}>
+                  {(tenantConfig?.mentorName || 'M').charAt(0).toUpperCase()}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -265,15 +256,11 @@ export default function StudentShell() {
           </div>
         </div>
       )}
-    </div>
-    
-    {/* ─── MASTER CONTROL PANEL ────────────────────── */}
-    {showMasterControl && (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#080B14' }}>
-        <MasterControlPanel onClose={() => setShowMasterControl(false)} />
-      </div>
-    )}
 
+      <AnimatePresence>
+        {showMasterControl && <MasterControlPanel onClose={() => setShowMasterControl(false)} />}
+      </AnimatePresence>
+    </div>
     </TradingModeProvider>
   );
 }
