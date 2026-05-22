@@ -5,6 +5,7 @@ import SniperLogo from '../assets/SniperLogo';
 export interface PremiumLoaderProps {
   onComplete: () => void;
   tenantName?: string;
+  ready?: boolean;
 }
 
 // ─── Graphique Animé Adapté au Format Mobile ───
@@ -60,23 +61,31 @@ function AnimatedChartMobile() {
   );
 }
 
-export function PremiumLoader({ onComplete, tenantName }: PremiumLoaderProps) {
+export function PremiumLoader({ onComplete, tenantName, ready = true }: PremiumLoaderProps) {
   const [phase, setPhase] = useState<'booting' | 'fadeout'>('booting');
+  const [minTimeElapsed, setMinTimeElapsed] = useState(false);
   const hasCompleted = useRef(false);
 
   useEffect(() => {
     const timer = setTimeout(() => {
+      setMinTimeElapsed(true);
+    }, 4000); // Chargement plus rapide et fluide (4s) pour mobile
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (minTimeElapsed && ready) {
       setPhase('fadeout');
-      setTimeout(() => {
+      const fadeTimer = setTimeout(() => {
         if (!hasCompleted.current) {
           hasCompleted.current = true;
           onComplete();
         }
       }, 500);
-    }, 4000); // Chargement plus rapide et fluide (4s) pour mobile
-
-    return () => clearTimeout(timer);
-  }, [onComplete]);
+      return () => clearTimeout(fadeTimer);
+    }
+  }, [minTimeElapsed, ready, onComplete]);
 
   const isFadingOut = phase === 'fadeout';
 

@@ -39,7 +39,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
   const [brokerUrl, setBrokerUrl] = useState(config.broker_1_url || '');
 
   const [academyModel, setAcademyModel] = useState<'payment' | 'broker' | 'both'>(
-    config.academy_model === 'free' ? 'payment' : (config.academy_model || 'payment')
+    (config.academy_model as string) === 'free' ? 'payment' : (config.academy_model || 'payment')
   );
   const [academyDurationModel, setAcademyDurationModel] = useState<'monthly' | 'lifetime'>(
     config.academy_duration_model || 'monthly'

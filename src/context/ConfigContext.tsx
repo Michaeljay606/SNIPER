@@ -319,14 +319,16 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     isError: !!isError,
   }), [config, isLoading, tenant_id, queryClient, isError]);
 
-  // 1. Force the premium 6.5s boot sequence on initial load
-  if (!bootAnimDone) {
-    return <PremiumLoader onComplete={() => setBootAnimDone(true)} tenantName={config?.mentorName || cachedMentorName || undefined} />;
-  }
-
   return (
     <ConfigContext.Provider value={value}>
       {children}
+      {!bootAnimDone && (
+        <PremiumLoader 
+          onComplete={() => setBootAnimDone(true)} 
+          tenantName={config?.mentorName || cachedMentorName || undefined} 
+          ready={!isLoading}
+        />
+      )}
     </ConfigContext.Provider>
   );
 };

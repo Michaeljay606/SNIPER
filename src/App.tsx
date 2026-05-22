@@ -180,6 +180,15 @@ export default function App() {
   const { config, loading: configLoading, isError: configError, refresh: refreshConfig } = useConfig();
   const { isAdmin, isBanned, currentUser, isLoading: roleLoading } = useUserRole();
 
+  // Initialize Telegram WebApp SDK
+  useEffect(() => {
+    const tg = (window as any).Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+    }
+  }, []);
+
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
     localStorage.setItem('theme', isDark ? 'dark' : 'light');
