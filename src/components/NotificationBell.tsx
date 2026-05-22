@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Bell, X, Activity, Check, Trash2, ShieldCheck, GraduationCap, User, HelpCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../lib/supabase';
@@ -85,7 +86,7 @@ export default function NotificationBell({ tenantId }: NotificationBellProps) {
   const getUnreadCount = () => {
     if (!userTgId) return 0;
     return notifications.filter(
-      (n) => !n.read_by || !n.read_by.some((id: any) => Number(id) === userTgId)
+      (n) => !Array.isArray(n.read_by) || !n.read_by.some((id: any) => Number(id) === userTgId)
     ).length;
   };
 
@@ -93,14 +94,17 @@ export default function NotificationBell({ tenantId }: NotificationBellProps) {
 
   // Mark single as read
   const markAsRead = async (notif: any) => {
-    if (!userTgId) return;
-    const isAlreadyRead = notif.read_by && notif.read_by.some((id: any) => Number(id) === userTgId);
+    if (!userTgId) {
+      handleNotifClick(notif);
+      return;
+    }
+    const isAlreadyRead = Array.isArray(notif.read_by) && notif.read_by.some((id: any) => Number(id) === userTgId);
     if (isAlreadyRead) {
       handleNotifClick(notif);
       return;
     }
 
-    const updatedReadBy = [...(notif.read_by || []), userTgId];
+    const updatedReadBy = [...(Array.isArray(notif.read_by) ? notif.read_by : []), userTgId];
 
     // Optimistic update
     setNotifications((prev) =>
@@ -123,7 +127,7 @@ export default function NotificationBell({ tenantId }: NotificationBellProps) {
   const markAllAsRead = async () => {
     if (!userTgId) return;
     const unreadNotifs = notifications.filter(
-      (n) => !n.read_by || !n.read_by.some((id: any) => Number(id) === userTgId)
+      (n) => !Array.isArray(n.read_by) || !n.read_by.some((id: any) => Number(id) === userTgId)
     );
 
     if (unreadNotifs.length === 0) return;
@@ -131,9 +135,9 @@ export default function NotificationBell({ tenantId }: NotificationBellProps) {
     // Optimistic update
     setNotifications((prev) =>
       prev.map((n) => {
-        const isUnread = !n.read_by || !n.read_by.some((id: any) => Number(id) === userTgId);
+        const isUnread = !Array.isArray(n.read_by) || !n.read_by.some((id: any) => Number(id) === userTgId);
         if (isUnread) {
-          return { ...n, read_by: [...(n.read_by || []), userTgId] };
+          return { ...n, read_by: [...(Array.isArray(n.read_by) ? n.read_by : []), userTgId] };
         }
         return n;
       })
@@ -142,7 +146,7 @@ export default function NotificationBell({ tenantId }: NotificationBellProps) {
     try {
       // Loop update
       for (const notif of unreadNotifs) {
-        const updatedReadBy = [...(notif.read_by || []), userTgId];
+        const updatedReadBy = [...(Array.isArray(notif.read_by) ? notif.read_by : []), userTgId];
         await supabase
           .from('notifications')
           .update({ read_by: updatedReadBy })
@@ -173,8 +177,10 @@ export default function NotificationBell({ tenantId }: NotificationBellProps) {
 
   // Timeago helper in French
   const formatTimeAgo = (dateStr: string) => {
+    if (!dateStr) return '';
     const now = new Date();
     const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return '';
     const diffMs = now.getTime() - date.getTime();
     const diffSec = Math.floor(diffMs / 1000);
     const diffMin = Math.floor(diffSec / 60);
@@ -250,10 +256,10 @@ export default function NotificationBell({ tenantId }: NotificationBellProps) {
   };
 
   return (
-    <>
+    <div style={{ position: 'relative' }}>
       {/* Bell Button */}
       <button
-        onClick={() => setIsOpen(true)}
+        onClick={() => setIsOpen(!isOpen)}
         style={{
           width: '36px',
           height: '36px',
@@ -297,7 +303,20 @@ export default function NotificationBell({ tenantId }: NotificationBellProps) {
         )}
       </button>
 
-      {/* Shake Keyframe definition */}
+      {/* Backdrop for closing when clicking outside */}
+      {isOpen && (
+        <div
+          onClick={() => setIsOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 999,
+            background: 'transparent',
+          }}
+        />
+      )}
+
+      {/* Shake & Pulse Keyframe definitions */}
       <style>{`
         @keyframes bell-shake {
           0% { transform: rotate(0); }
@@ -308,154 +327,148 @@ export default function NotificationBell({ tenantId }: NotificationBellProps) {
           75% { transform: rotate(2deg); }
           100% { transform: rotate(0); }
         }
+        @keyframes pulse {
+          0% { transform: scale(0.95); opacity: 0.4; }
+          50% { transform: scale(1.05); opacity: 0.7; }
+          100% { transform: scale(0.95); opacity: 0.4; }
+        }
+        .notif-item {
+          transition: background-color 0.2s ease, transform 0.1s ease;
+        }
+        .notif-item:hover {
+          background: rgba(255, 255, 255, 0.03) !important;
+        }
+        .notif-item:active {
+          transform: scale(0.99);
+        }
       `}</style>
 
-      {/* Bottom Sheet Drawer */}
+      {/* Dropdown Menu */}
       <AnimatePresence>
         {isOpen && (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsOpen(false)}
-              style={{ position: 'absolute', inset: 0, background: 'rgba(5,5,7,0.85)', backdropFilter: 'blur(8px)' }}
-            />
+          <motion.div
+            key="notification-dropdown"
+            initial={{ opacity: 0, scale: 0.95, y: -10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: -10 }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
+            style={{
+              position: 'absolute',
+              top: '42px',
+              right: 0,
+              width: '320px',
+              background: 'rgba(10, 14, 26, 0.97)',
+              backdropFilter: 'blur(24px)',
+              border: '1px solid rgba(0, 255, 65, 0.15)',
+              borderRadius: '16px',
+              padding: '16px',
+              boxShadow: '0 10px 40px rgba(0, 0, 0, 0.8), 0 0 20px rgba(0, 255, 65, 0.04)',
+              zIndex: 1000,
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              <h3 style={{ fontFamily: 'Space Mono', fontSize: '10px', letterSpacing: '0.12em', color: 'var(--muted)', textTransform: 'uppercase', margin: 0 }}>
+                NOTIFICATIONS
+              </h3>
+              
+              {unreadCount > 0 && (
+                <button
+                  onClick={markAllAsRead}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--green)',
+                    fontSize: '9px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    fontFamily: 'Space Mono',
+                    letterSpacing: '0.05em',
+                    padding: '2px 6px',
+                  }}
+                >
+                  TOUT LIRE
+                </button>
+              )}
+            </div>
 
-            {/* Panel */}
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-              style={{
-                position: 'relative',
-                background: 'var(--bg)',
-                borderTop: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '24px 24px 0 0',
-                padding: '20px 16px 32px',
-                maxHeight: '80vh',
-                display: 'flex',
-                flexDirection: 'column',
-                boxShadow: '0 -10px 40px rgba(0,0,0,0.5)',
-              }}
-            >
-              {/* Drag Handle */}
-              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
-                <div style={{ width: '40px', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px' }} />
-              </div>
-
-              {/* Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <h3 style={{ fontFamily: 'Space Mono', fontSize: '12px', letterSpacing: '0.12em', color: 'var(--muted)', textTransform: 'uppercase', margin: 0 }}>
-                  NOTIFICATIONS
-                </h3>
-                
-                {unreadCount > 0 && (
-                  <button
-                    onClick={markAllAsRead}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--green)',
-                      fontSize: '10px',
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      fontFamily: 'Space Mono',
-                      letterSpacing: '0.05em',
-                      padding: '4px 8px',
-                    }}
-                  >
-                    TOUT MARQUER LU
-                  </button>
-                )}
-              </div>
-
-              {/* Scrollable List */}
-              <div style={{ flex: 1, overflowY: 'auto', maxHeight: '50vh', paddingRight: '4px' }}>
-                {notifications.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--muted)', fontSize: '12px', fontStyle: 'italic' }}>
-                    Aucune notification reçue ces 7 derniers jours.
+            {/* Scrollable List */}
+            <div style={{ flex: 1, overflowY: 'auto', maxHeight: '300px', paddingRight: '4px' }}>
+              {notifications.length === 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '28px 12px', textAlign: 'center' }}>
+                  <div style={{ position: 'relative', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ position: 'absolute', width: '36px', height: '36px', borderRadius: '50%', background: 'rgba(0, 255, 65, 0.05)', filter: 'blur(6px)', animation: 'pulse 2s infinite' }} />
+                    <Bell size={20} color="rgba(0, 255, 65, 0.4)" style={{ position: 'relative' }} />
                   </div>
-                ) : (
-                  notifications.map((notif) => {
-                    const isRead = notif.read_by && notif.read_by.some((id: any) => Number(id) === userTgId);
-                    
-                    return (
-                      <div
-                        key={notif.id}
-                        onClick={() => markAsRead(notif)}
-                        style={{
-                          display: 'flex',
-                          gap: '12px',
-                          padding: '14px 0',
-                          borderBottom: '1px solid rgba(255,255,255,0.04)',
-                          cursor: 'pointer',
-                          opacity: isRead ? 0.6 : 1,
-                          transition: 'opacity 0.2s',
-                        }}
-                      >
+                  <p style={{ fontSize: '11px', fontWeight: 700, color: '#FFFFFF', margin: '0 0 2px 0', letterSpacing: '0.02em' }}>
+                    Aucune notification
+                  </p>
+                  <p style={{ fontSize: '9px', color: 'var(--muted)', margin: 0, lineHeight: 1.3 }}>
+                    Vous êtes à jour ! Aucun message reçu ces 7 derniers jours.
+                  </p>
+                </div>
+              ) : (
+                notifications.map((notif) => {
+                  const isRead = Array.isArray(notif.read_by) && notif.read_by.some((id: any) => Number(id) === userTgId);
+                  
+                  return (
+                    <div
+                      key={notif.id}
+                      onClick={() => markAsRead(notif)}
+                      style={{
+                        display: 'flex',
+                        gap: '10px',
+                        padding: '10px 8px',
+                        borderBottom: '1px solid rgba(255,255,255,0.04)',
+                        cursor: 'pointer',
+                        opacity: isRead ? 0.6 : 1,
+                        borderRadius: '8px',
+                        marginBottom: '2px',
+                      }}
+                      className="notif-item"
+                    >
+                      <div style={{ flexShrink: 0, marginTop: '2px' }}>
                         {getTypeIcon(notif.type)}
-                        
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
-                            <span style={{ fontSize: '13px', fontWeight: isRead ? 500 : 700, color: '#FFFFFF' }}>
-                              {notif.title}
-                            </span>
-                            <span style={{ fontFamily: 'Space Mono', fontSize: '8px', color: 'var(--muted)' }}>
-                              {formatTimeAgo(notif.sent_at)}
-                            </span>
-                          </div>
-                          
-                          <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', lineHeight: 1.4, margin: 0 }}>
-                            {notif.body}
-                          </p>
-                        </div>
-
-                        {!isRead && (
-                          <div
-                            style={{
-                              width: '6px',
-                              height: '6px',
-                              borderRadius: '50%',
-                              background: 'var(--green)',
-                              alignSelf: 'center',
-                              boxShadow: '0 0 6px var(--green)',
-                            }}
-                          />
-                        )}
                       </div>
-                    );
-                  })
-                )}
-              </div>
+                      
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px', gap: '8px' }}>
+                          <span style={{ fontSize: '12px', fontWeight: isRead ? 500 : 700, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {notif.title}
+                          </span>
+                          <span style={{ fontFamily: 'Space Mono', fontSize: '7px', color: 'var(--muted)', flexShrink: 0 }}>
+                            {formatTimeAgo(notif.sent_at)}
+                          </span>
+                        </div>
+                        
+                        <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', lineHeight: 1.3, margin: 0, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                          {notif.body}
+                        </p>
+                      </div>
 
-              {/* Close Button */}
-              <button
-                onClick={() => setIsOpen(false)}
-                style={{
-                  position: 'absolute',
-                  top: '16px',
-                  right: '16px',
-                  background: 'rgba(255,255,255,0.05)',
-                  border: 'none',
-                  borderRadius: '50%',
-                  width: '28px',
-                  height: '28px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  color: 'var(--text)',
-                }}
-              >
-                <X size={14} />
-              </button>
-            </motion.div>
-          </div>
+                      {!isRead && (
+                        <div
+                          style={{
+                            width: '5px',
+                            height: '5px',
+                            borderRadius: '50%',
+                            background: 'var(--green)',
+                            alignSelf: 'center',
+                            boxShadow: '0 0 5px var(--green)',
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
-    </>
+    </div>
   );
 }

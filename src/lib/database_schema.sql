@@ -22,10 +22,13 @@ CREATE TABLE IF NOT EXISTS tenants (
   social_youtube TEXT,
   social_instagram TEXT,
   social_tiktok TEXT,
+  social_facebook TEXT,
+  social_whatsapp TEXT,
   elite_title TEXT,
   elite_description TEXT,
   elite_price TEXT,
   elite_contact_url TEXT,
+  elite_benefits JSONB DEFAULT '["Accès prioritaire direct au mentor","Suivi personnalisé et plan d'action","Analyse de vos trades et corrections","Accélération vers la rentabilité"]'::jsonb,
   theme_color TEXT DEFAULT '#00FF41',
   social_links JSONB DEFAULT '[]'::jsonb,
   telegram_id BIGINT,
@@ -229,3 +232,11 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.app_settings TO service_role;
 GRANT SELECT ON public.mentor_badges TO anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.mentor_badges TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.mentor_badges TO service_role;
+
+-- ============================================================
+-- MIGRATION: Add elite_benefits column to existing tenants
+-- Run this in Supabase SQL Editor if the table already exists
+-- ============================================================
+ALTER TABLE public.tenants
+  ADD COLUMN IF NOT EXISTS elite_benefits JSONB DEFAULT '["Accès prioritaire direct au mentor","Suivi personnalisé et plan d''action","Analyse de vos trades et corrections","Accélération vers la rentabilité"]'::jsonb;
+

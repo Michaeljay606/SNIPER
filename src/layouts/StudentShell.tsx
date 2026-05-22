@@ -8,7 +8,7 @@ import { TradingModeProvider } from '../context/TradingModeContext';
 import MasterControlPanel from '../components/MasterControlPanel';
 import { useUserRole } from '../hooks/useUserRole';
 import SniperLogo from '../assets/SniperLogo';
-import { AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import NotificationBell from '../components/NotificationBell';
 
 function CheckCircleIcon({ size, className }: { size: number; className?: string }) {
@@ -128,8 +128,29 @@ export default function StudentShell() {
               {tenantConfig?.mentorName || 'SNIPER'}
             </h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3 }}>
-              <span style={{ width: 5, height: 5, background: 'var(--green)', borderRadius: '50%', display: 'inline-block' }} />
-              <span style={{ fontFamily: 'var(--mono)', fontSize: 8, letterSpacing: '0.14em', color: 'var(--muted)', textTransform: 'uppercase' }}>MENTOR ACCESS</span>
+              <span style={{ width: 5, height: 5, background: 'var(--accent-neon)', borderRadius: '50%', display: 'inline-block', boxShadow: '0 0 6px var(--accent-neon)' }} />
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 8, letterSpacing: '0.14em', color: 'var(--muted)', textTransform: 'uppercase' }}>
+                {(() => {
+                  if (!tenantConfig) return 'MENTOR ACCESS';
+                  const rawMode = (tenantConfig.tradingMode || 'forex').toLowerCase();
+                  if (rawMode === 'binary') return 'BINARY MENTOR';
+                  
+                  // Check specialty
+                  const spec = (tenantConfig.speciality || '').toLowerCase().trim();
+                  if (spec) {
+                    if (spec.includes('forex') || spec.includes(' fx')) return 'FOREX MENTOR';
+                    if (spec.includes('crypto')) return 'CRYPTO MENTOR';
+                    if (spec.includes('stock') || spec.includes('action') || spec.includes('equity')) return 'STOCKS MENTOR';
+                    if (spec.includes('indice') || spec.includes('index')) return 'INDICES MENTOR';
+                    if (spec.includes('binaire') || spec.includes('binary')) return 'BINARY MENTOR';
+                    if (spec.includes('commodity') || spec.includes('commodities') || spec.includes('or ') || spec.includes('gold')) return 'COMMODITIES MENTOR';
+                    if (tenantConfig.speciality.length <= 15) return `${tenantConfig.speciality.toUpperCase()} MENTOR`;
+                  }
+                  
+                  if (rawMode === 'both') return 'MULTI-ASSET MENTOR';
+                  return 'FOREX MENTOR';
+                })()}
+              </span>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -216,7 +237,19 @@ export default function StudentShell() {
       {showUpgradeSheet && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }} onClick={() => setShowUpgradeSheet(false)} />
-          <div style={{ position: 'relative', background: 'var(--bg)', borderTop: '1px solid rgba(0,255,65,0.3)', borderRadius: '20px 20px 0 0', padding: 24, boxShadow: '0 -10px 40px rgba(0,255,65,0.1)' }}>
+          <div style={{
+            position: 'relative',
+            background: 'var(--bg)',
+            borderTop: '1px solid rgba(0,255,65,0.3)',
+            borderLeft: '1px solid rgba(0,255,65,0.15)',
+            borderRight: '1px solid rgba(0,255,65,0.15)',
+            borderRadius: '20px 20px 0 0',
+            padding: 24,
+            boxShadow: '0 -10px 40px rgba(0,255,65,0.1)',
+            width: '100%',
+            maxWidth: 430,
+            alignSelf: 'center',
+          }}>
             <button onClick={() => setShowUpgradeSheet(false)} style={{ position: 'absolute', top: 16, right: 16, padding: 8, background: 'var(--elevated)', border: 'none', borderRadius: '50%', color: 'var(--muted)', cursor: 'pointer' }}>
               <X size={16} />
             </button>
@@ -258,7 +291,23 @@ export default function StudentShell() {
       )}
 
       <AnimatePresence>
-        {showMasterControl && <MasterControlPanel onClose={() => setShowMasterControl(false)} />}
+        {showMasterControl && (
+          <>
+            {/* Full-screen solid background to hide the terminal app behind */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              style={{
+                position: 'fixed',
+                inset: 0,
+                background: '#080B14',
+                zIndex: 999
+              }}
+            />
+            <MasterControlPanel onClose={() => setShowMasterControl(false)} />
+          </>
+        )}
       </AnimatePresence>
     </div>
     </TradingModeProvider>

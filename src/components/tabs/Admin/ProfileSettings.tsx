@@ -686,11 +686,11 @@ const ProfileSettings = ({ onShowToast }: ProfileSettingsProps) => {
         <div style={{ padding: '14px 18px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
           {/* ── Mode selector ─────────────────────────────── */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
             {([
-              { id: 'payment', icon: '💳', title: 'PAIEMENT', sub: 'Abonnement ou achat unique' },
-              { id: 'broker',  icon: '🤝', title: 'BROKER',   sub: 'Inscription via lien affilié' },
-              { id: 'both',    icon: '⚡', title: 'LES DEUX', sub: 'Membre choisit' },
+              { id: 'payment', icon: '💳', title: 'PAIEMENT', sub: 'Abonnement' },
+              { id: 'broker',  icon: '🤝', title: 'BROKER',   sub: 'Affiliation' },
+              { id: 'both',    icon: '⚡', title: 'LES DEUX', sub: 'Au choix' },
             ] as { id: string; icon: string; title: string; sub: string }[]).map(opt => {
               const active = (config.academy_model || 'payment') === opt.id;
               return (

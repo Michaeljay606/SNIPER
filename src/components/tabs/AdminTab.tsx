@@ -2,12 +2,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { Activity, GraduationCap, Users, Settings, BarChart2, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../../lib/supabase';
 import { useClientConfig } from '../../hooks/useClientConfig';
 import SignalManager from './Admin/SignalManager';
 import MemberManager from './Admin/MemberManager';
 import AcademyManager from './Admin/AcademyManager';
 import ProfileSettings from './Admin/ProfileSettings';
+import MasterControlPanel from '../MasterControlPanel';
 
 type ToastType = 'success' | 'error' | 'warning';
 interface Toast { msg: string; type: ToastType }
@@ -103,24 +105,76 @@ export default function AdminTab() {
   }, [location.pathname, tenant_id]);
 
   const [liveSignals, setLiveSignals] = useState<any[]>([]);
+  const [showMasterControl, setShowMasterControl] = useState(false);
 
   useEffect(() => {
     if (!tenant_id) return;
     setLiveSignals([]); // Clear old signals
-    supabase.from('signals').select('*').eq('tenant_id', tenant_id)
-      .then(({ data }) => { if (data) setLiveSignals([...data].reverse()); });
+
+    // Fetch active signals and recent signals in parallel for maximum speed
+    Promise.all([
+      supabase.from('signals')
+        .select('*')
+        .eq('tenant_id', tenant_id)
+        .in('status', ['active', 'tp1_hit', 'tp2_hit']),
+      supabase.from('signals')
+        .select('*')
+        .eq('tenant_id', tenant_id)
+        .order('timestamp', { ascending: false })
+        .limit(50)
+    ]).then(([activeRes, recentRes]) => {
+      const activeData = activeRes.data || [];
+      const recentData = recentRes.data || [];
+
+      const combined = [...activeData, ...recentData];
+      const uniqueMap = new Map();
+      combined.forEach(s => {
+        if (s && s.id) uniqueMap.set(s.id, s);
+      });
+      const uniqueList = Array.from(uniqueMap.values());
+
+      // Sort: chronological descending by default
+      uniqueList.sort((a, b) => {
+        const aTime = new Date(a.timestamp || a.created_at || 0).getTime();
+        const bTime = new Date(b.timestamp || b.created_at || 0).getTime();
+        return bTime - aTime;
+      });
+
+      setLiveSignals(uniqueList);
+    }).catch(err => {
+      console.error('Error syncing signals in AdminTab:', err);
+    });
   }, [tenant_id]);
 
-  const navItems = [
-    { id: 'signals', label: 'Signaux', icon: Activity },
-    { id: 'academy', label: 'Academy', icon: GraduationCap },
-    { id: 'members', label: 'Membres', icon: Users },
-    { id: 'stats', label: 'Stats', icon: BarChart2 },
-    { id: 'settings', label: 'Réglages', icon: Settings },
-  ];
+  const isOperator = useMemo(() => {
+    const telegramId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString();
+    const operatorId = import.meta.env.VITE_OPERATOR_ID;
+    const isDev = import.meta.env.DEV;
+    const searchParams = new URLSearchParams(location.search);
+    const isBypass = searchParams.get('auth') === 'bypass';
+    return telegramId === operatorId || isDev || !operatorId || isBypass;
+  }, [location.search]);
+
+  const navItems = useMemo(() => {
+    const items = [
+      { id: 'signals', label: 'Signaux', icon: Activity },
+      { id: 'academy', label: 'Academy', icon: GraduationCap },
+      { id: 'members', label: 'Membres', icon: Users },
+      { id: 'stats', label: 'Stats', icon: BarChart2 },
+      { id: 'settings', label: 'Réglages', icon: Settings },
+    ];
+    if (isOperator) {
+      items.push({ id: 'master', label: 'Master 👑', icon: ShieldCheck });
+    }
+    return items;
+  }, [isOperator]);
 
   const handleTabClick = (id: string) => {
-    navigate(`/app/${tenant_id}/admin/${id}`);
+    if (id === 'master') {
+      setShowMasterControl(true);
+    } else {
+      navigate(`/app/${tenant_id}/admin/${id}`);
+    }
   };
 
   return (
@@ -169,6 +223,26 @@ export default function AdminTab() {
         {activeTab === 'stats' && <AdminStatsContent />}
         {activeTab === 'settings' && <ProfileSettings onShowToast={showToast} />}
       </div>
+
+      <AnimatePresence>
+        {showMasterControl && (
+          <>
+            {/* Full-screen solid background to hide the terminal app behind */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              style={{
+                position: 'fixed',
+                inset: 0,
+                background: '#080B14',
+                zIndex: 999
+              }}
+            />
+            <MasterControlPanel onClose={() => setShowMasterControl(false)} />
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

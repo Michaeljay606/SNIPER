@@ -24,6 +24,29 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
   const [mentorName, setMentorName] = useState(config.mentorName || '');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Step 3 access config state
+  const [vipModel, setVipModel] = useState<'payment' | 'broker' | 'both'>(
+    config.vipModel || (config as any).vip_model || 'payment'
+  );
+  const [vipPrice1m, setVipPrice1m] = useState(config.vip_price_1m || '99');
+  const [vipPrice1y, setVipPrice1y] = useState(config.vip_price_1y || '599');
+  const [vipCurrency, setVipCurrency] = useState(config.vip_currency || 'USDT');
+  const [tonPaymentEnabled, setTonPaymentEnabled] = useState(!!config.ton_payment_enabled);
+  const [tonWallet, setTonWallet] = useState(config.ton_wallet || config.wallets?.ton || '');
+  const [usdtTrc20Wallet, setUsdtTrc20Wallet] = useState(config.wallets?.usdtTrc20 || '');
+
+  const [brokerName, setBrokerName] = useState(config.broker_1_name || '');
+  const [brokerUrl, setBrokerUrl] = useState(config.broker_1_url || '');
+
+  const [academyModel, setAcademyModel] = useState<'payment' | 'broker' | 'both'>(
+    config.academy_model === 'free' ? 'payment' : (config.academy_model || 'payment')
+  );
+  const [academyDurationModel, setAcademyDurationModel] = useState<'monthly' | 'lifetime'>(
+    config.academy_duration_model || 'monthly'
+  );
+  const [academyPrice1m, setAcademyPrice1m] = useState(config.academy_price_1m || '29');
+  const [academyPriceLifetime, setAcademyPriceLifetime] = useState(config.academy_price_lifetime || '199');
+
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -125,6 +148,61 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
     }
   };
 
+  const handleStep3Submit = async () => {
+    setIsSaving(true);
+    try {
+      const updatedWallets = {
+        ...(config.wallets || {}),
+        ton: tonWallet || null,
+        usdtTrc20: usdtTrc20Wallet || null
+      };
+
+      // Sync local context state
+      config.vipModel = vipModel;
+      config.vip_price_1m = vipPrice1m;
+      config.vip_price_1y = vipPrice1y;
+      config.vip_price_lifetime = '';
+      config.vip_currency = vipCurrency;
+      config.ton_payment_enabled = tonPaymentEnabled;
+      config.ton_wallet = tonWallet;
+      config.wallets = updatedWallets;
+      config.broker_1_name = brokerName;
+      config.broker_1_url = brokerUrl;
+      config.academy_model = academyModel;
+      config.academy_duration_model = academyDurationModel;
+      config.academy_price_1m = academyPrice1m;
+      config.academy_price_lifetime = academyPriceLifetime;
+
+      const { error } = await supabase
+        .from('tenants')
+        .update({
+          vip_model: vipModel,
+          vip_price_1m: vipPrice1m || null,
+          vip_price_1y: vipPrice1y || null,
+          vip_price_lifetime: null,
+          vip_currency: vipCurrency || 'USDT',
+          ton_payment_enabled: tonPaymentEnabled,
+          ton_wallet: tonWallet || null,
+          wallets: updatedWallets,
+          broker_1_name: brokerName || null,
+          broker_1_url: brokerUrl || null,
+          academy_model: academyModel,
+          academy_duration_model: academyDurationModel,
+          academy_price_1m: academyPrice1m || null,
+          academy_price_lifetime: academyPriceLifetime || null
+        })
+        .eq('tenant_id', TENANT_ID);
+
+      if (!error) {
+        setStep(4);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleFinish = async () => {
     setIsSaving(true);
     try {
@@ -151,6 +229,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
   };
 
   const isStep2Enabled = speciality.trim().length > 0 || yearsExp.trim().length > 0 || tradersCount.trim().length > 0;
+  const isStep3Enabled = !tonPaymentEnabled || tonWallet.trim().length > 0;
 
   const planIcons: Record<string, string> = {
     empire: '⚡',
@@ -159,6 +238,17 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
     free: '○',
   };
   const planIcon = planIcons[config.plan] || '○';
+
+  const isBinary = config.tradingMode === 'binary';
+  const isForex = config.tradingMode === 'forex';
+
+  const brokerNamePlaceholder = isBinary 
+    ? "Pocket Option" 
+    : (isForex ? "XM" : "XM / Pocket Option");
+     
+  const brokerUrlPlaceholder = isBinary 
+    ? "https://pocketoption.com/..." 
+    : (isForex ? "https://xm.com/..." : "https://...");
 
   const screenVariants = {
     initial: { opacity: 0, scale: 0.96 },
@@ -181,10 +271,10 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
         {/* Progress header */}
         <div className="flex justify-between items-center px-2 shrink-0">
           <span className="font-mono text-[9px] text-[rgba(255,255,255,0.3)] tracking-widest uppercase">
-            {step === 1 ? 'Activation' : step === 2 ? 'Configuration' : 'Déploiement'}
+            {step === 1 ? 'Activation' : step === 2 ? 'Configuration' : step === 3 ? 'Accès & Tarifs' : 'Déploiement'}
           </span>
           <div className="flex items-center gap-2">
-            {[1, 2, 3].map((s) => (
+            {[1, 2, 3, 4].map((s) => (
               <motion.div
                 key={s}
                 animate={{
@@ -322,7 +412,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                   <div className="flex justify-between items-center pb-4 shrink-0">
                     <button 
                       onClick={() => setStep(1)}
-                      className="p-1 -ml-1 text-[rgba(255,255,255,0.35)] hover:text-white transition-colors text-xs font-mono flex items-center gap-1"
+                      className="p-1 -ml-1 text-[rgba(255,255,255,0.35)] hover:text-white transition-colors text-xs font-mono flex items-center gap-1 bg-transparent border-none cursor-pointer"
                     >
                       ← RETOUR
                     </button>
@@ -387,10 +477,362 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
               </motion.div>
             )}
 
-            {/* SCREEN A3 — TERMINAL PRÊT */}
+            {/* SCREEN A3 — ACCÈS & TARIFS */}
             {step === 3 && (
               <motion.div
                 key="screen-a3"
+                variants={screenVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                transition={transitionSpec}
+                className="flex-1 flex flex-col justify-between text-left"
+              >
+                <div>
+                  {/* Header */}
+                  <div className="flex justify-between items-center pb-3 shrink-0">
+                    <button 
+                      onClick={() => setStep(2)}
+                      className="p-1 -ml-1 text-[rgba(255,255,255,0.35)] hover:text-white transition-colors text-xs font-mono flex items-center gap-1 bg-transparent border-none cursor-pointer outline-none"
+                    >
+                      ← RETOUR
+                    </button>
+                    <span className="font-mono text-[9px] text-[rgba(255,255,255,0.35)] tracking-widest font-bold">STEP 03</span>
+                  </div>
+
+                  {/* Intro */}
+                  <div className="space-y-1 pb-3">
+                    <h2 className="text-lg font-bold text-white tracking-tight">Accès & Tarifs</h2>
+                    <p className="text-[11px] text-[rgba(255,255,255,0.4)] leading-relaxed">
+                      Définissez comment vos membres accèdent à vos signaux VIP et à l'Academy.
+                    </p>
+                  </div>
+
+                  {/* Form fields wrapper */}
+                  <div className="space-y-5 max-h-[290px] overflow-y-auto pr-1">
+                    
+                    {/* Section 1: Signaux VIP */}
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-1.5 border-b border-white/[0.06] pb-1.5">
+                        <span className="text-sm">📡</span>
+                        <h4 className="font-mono text-[9px] tracking-widest text-[#00FF41] uppercase font-bold">
+                          ACCÈS SIGNAUX VIP
+                        </h4>
+                      </div>
+
+                      {/* Model Selector buttons */}
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {[
+                          { id: 'payment', label: 'Paiement', desc: 'Abonnement' },
+                          { id: 'broker', label: 'Broker', desc: 'Affiliation' },
+                          { id: 'both', label: 'Les Deux', desc: 'Au Choix' },
+                        ].map((opt) => {
+                          const active = vipModel === opt.id;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => setVipModel(opt.id as any)}
+                              className={`flex flex-col items-center justify-center p-2 rounded-xl border transition-all cursor-pointer ${
+                                active
+                                  ? 'bg-[#00FF41]/[0.08] border-[#00FF41]/40 text-[#00FF41]'
+                                  : 'bg-white/[0.02] border-white/[0.06] text-[rgba(255,255,255,0.5)] hover:bg-white/[0.04]'
+                              }`}
+                            >
+                              <span className="text-xs font-bold font-sans tracking-wide">{opt.label}</span>
+                              <span className="text-[8px] opacity-60 font-mono mt-0.5">{opt.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Payment Settings */}
+                      {(vipModel === 'payment' || vipModel === 'both') && (
+                        <div className="space-y-3 bg-white/[0.01] border border-white/[0.04] p-3 rounded-xl animate-in fade-in duration-200">
+                          {/* Prices input */}
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="space-y-1">
+                              <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
+                                Prix Mensuel
+                              </label>
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  placeholder="99"
+                                  value={vipPrice1m}
+                                  onChange={(e) => setVipPrice1m(e.target.value)}
+                                  className="w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-2 pr-10 text-xs text-white focus:outline-none focus:border-[#00FF41]/30 font-mono"
+                                />
+                                <span className="absolute right-2 top-2 text-[8px] font-mono text-white/40">{vipCurrency}</span>
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
+                                Prix Annuel
+                              </label>
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  placeholder="599"
+                                  value={vipPrice1y}
+                                  onChange={(e) => setVipPrice1y(e.target.value)}
+                                  className="w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-2 pr-10 text-xs text-white focus:outline-none focus:border-[#00FF41]/30 font-mono"
+                                />
+                                <span className="absolute right-2 top-2 text-[8px] font-mono text-white/40">{vipCurrency}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Broker Settings */}
+                      {(vipModel === 'broker' || vipModel === 'both') && (
+                        <div className="space-y-3 bg-white/[0.01] border border-white/[0.04] p-3 rounded-xl animate-in fade-in duration-200">
+                          <div className="text-[10px] text-white/50 leading-relaxed font-sans mb-1">
+                            Configurez le broker partenaire que vos membres devront utiliser.
+                          </div>
+                          <div className="space-y-2">
+                            <div>
+                              <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
+                                Nom du Broker
+                              </label>
+                              <input
+                                type="text"
+                                value={brokerName}
+                                onChange={(e) => setBrokerName(e.target.value)}
+                                placeholder={`Ex: ${brokerNamePlaceholder}`}
+                                className="w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-2 text-xs text-white focus:outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
+                                Lien d'affiliation
+                              </label>
+                              <input
+                                type="text"
+                                value={brokerUrl}
+                                onChange={(e) => setBrokerUrl(e.target.value)}
+                                placeholder={brokerUrlPlaceholder}
+                                className="w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-2 text-xs font-mono text-white/70 focus:outline-none focus:border-[#00FF41]/30"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Section 2: Academy */}
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-1.5 border-b border-white/[0.06] pb-1.5">
+                        <span className="text-sm">🎓</span>
+                        <h4 className="font-mono text-[9px] tracking-widest text-[#FFD60A] uppercase font-bold">
+                          ACCÈS ACADEMY
+                        </h4>
+                      </div>
+
+                      {/* Academy Selector buttons */}
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {[
+                          { id: 'payment', label: 'Paiement', desc: 'Abonnement' },
+                          { id: 'broker', label: 'Broker', desc: 'Affiliation' },
+                          { id: 'both', label: 'Les Deux', desc: 'Au Choix' },
+                        ].map((opt) => {
+                          const active = academyModel === opt.id;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => setAcademyModel(opt.id as any)}
+                              className={`flex flex-col items-center justify-center p-2 rounded-xl border transition-all cursor-pointer ${
+                                active
+                                  ? 'bg-[#FFD60A]/[0.08] border-[#FFD60A]/40 text-[#FFD60A]'
+                                  : 'bg-white/[0.02] border-white/[0.06] text-[rgba(255,255,255,0.5)] hover:bg-white/[0.04]'
+                              }`}
+                            >
+                              <span className="text-xs font-bold font-sans tracking-wide">{opt.label}</span>
+                              <span className="text-[8px] opacity-60 font-mono mt-0.5">{opt.desc}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Academy Payment Config */}
+                      {(academyModel === 'payment' || academyModel === 'both') && (
+                        <div className="space-y-3 bg-white/[0.01] border border-white/[0.04] p-3 rounded-xl animate-in fade-in duration-200">
+                          {/* Duration Model */}
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setAcademyDurationModel('monthly')}
+                              className={`flex-1 py-1.5 rounded-lg border text-[9px] font-bold uppercase tracking-wider cursor-pointer ${
+                                academyDurationModel === 'monthly'
+                                  ? 'bg-white/10 border-white/20 text-white'
+                                  : 'bg-transparent border-white/[0.06] text-white/40'
+                              }`}
+                            >
+                              Mensuel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setAcademyDurationModel('lifetime')}
+                              className={`flex-1 py-1.5 rounded-lg border text-[9px] font-bold uppercase tracking-wider cursor-pointer ${
+                                academyDurationModel === 'lifetime'
+                                  ? 'bg-white/10 border-white/20 text-white'
+                                  : 'bg-transparent border-white/[0.06] text-white/40'
+                              }`}
+                            >
+                              À Vie
+                            </button>
+                          </div>
+
+                          {/* Price input */}
+                          <div className="space-y-1">
+                            <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
+                              Prix de l'Academy ({academyDurationModel === 'monthly' ? 'Mensuel' : 'Accès à vie'})
+                            </label>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                placeholder={academyDurationModel === 'monthly' ? '29' : '199'}
+                                value={academyDurationModel === 'monthly' ? academyPrice1m : academyPriceLifetime}
+                                onChange={(e) => {
+                                  if (academyDurationModel === 'monthly') {
+                                    setAcademyPrice1m(e.target.value);
+                                  } else {
+                                    setAcademyPriceLifetime(e.target.value);
+                                  }
+                                }}
+                                className="w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-2 pr-10 text-xs text-white focus:outline-none focus:border-[#FFD60A]/30 font-mono"
+                              />
+                              <span className="absolute right-2 top-2 text-[8px] font-mono text-white/40">{vipCurrency}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Academy Broker Form */}
+                      {(academyModel === 'broker' || academyModel === 'both') && (
+                        <div className="space-y-3 bg-white/[0.01] border border-white/[0.04] p-3 rounded-xl animate-in fade-in duration-200">
+                          <div className="text-[10px] text-[#60A5FA]/80 leading-relaxed font-sans mb-1">
+                            💡 Les membres devront s'inscrire via votre lien affilié pour débloquer l'Academy.
+                          </div>
+                          <div className="space-y-2">
+                            <div>
+                              <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
+                                Nom du Broker
+                              </label>
+                              <input
+                                type="text"
+                                value={brokerName}
+                                onChange={(e) => setBrokerName(e.target.value)}
+                                placeholder={`Ex: ${brokerNamePlaceholder}`}
+                                className="w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#60A5FA]/40"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
+                                Lien d'affiliation
+                              </label>
+                              <input
+                                type="text"
+                                value={brokerUrl}
+                                onChange={(e) => setBrokerUrl(e.target.value)}
+                                placeholder={brokerUrlPlaceholder}
+                                className="w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-2 text-[10px] font-mono text-[#60A5FA]/80 focus:outline-none focus:border-[#60A5FA]/40"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Section 3: Crypto Payment Configuration */}
+                    {((vipModel === 'payment' || vipModel === 'both') || (academyModel === 'payment' || academyModel === 'both')) && (
+                      <div className="space-y-3 pt-1">
+                        <div className="flex items-center gap-1.5 border-b border-white/[0.06] pb-1.5">
+                          <span className="text-sm">🪙</span>
+                          <h4 className="font-mono text-[9px] tracking-widest text-[#0098EA] uppercase font-bold">
+                            MOYENS DE PAIEMENT CRYPTO
+                          </h4>
+                        </div>
+                        <div className="space-y-3 bg-white/[0.01] border border-white/[0.04] p-3 rounded-xl">
+                          {/* Currency setting */}
+                          <div className="space-y-1">
+                            <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
+                              Devise de Facturation
+                            </label>
+                            <input
+                              type="text"
+                              value={vipCurrency}
+                              onChange={(e) => setVipCurrency(e.target.value.toUpperCase())}
+                              placeholder="USDT"
+                              className="w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#00FF41]/30 font-mono uppercase"
+                            />
+                          </div>
+
+                          {/* TON Connect config */}
+                          <div className="border-t border-white/[0.04] pt-2.5 mt-1">
+                            <div className="flex items-center justify-between">
+                              <div className="text-left">
+                                <div className="text-[10px] font-bold text-[#0098EA]">TON Connect (Automatique)</div>
+                                <div className="text-[8px] text-white/40">Acceptez les paiements crypto en direct</div>
+                              </div>
+                              <div 
+                                onClick={() => setTonPaymentEnabled(!tonPaymentEnabled)}
+                                className={`w-9 h-5 rounded-full p-0.5 cursor-pointer transition-colors duration-200 flex items-center ${
+                                  tonPaymentEnabled ? 'bg-[#0098EA]' : 'bg-white/10'
+                                }`}
+                              >
+                                <div className={`w-4 h-4 rounded-full bg-white transition-transform duration-200 ${
+                                  tonPaymentEnabled ? 'translate-x-4' : 'translate-x-0'
+                                }`} />
+                              </div>
+                            </div>
+
+                            {tonPaymentEnabled && (
+                              <div className="mt-2 space-y-2 animate-in slide-in-from-top-2 duration-200">
+                                <div>
+                                  <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
+                                    Adresse Wallet TON
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={tonWallet}
+                                    onChange={(e) => setTonWallet(e.target.value)}
+                                    placeholder="UQ..."
+                                    className="w-full bg-black/40 border border-[#0098EA]/30 rounded-lg px-3 py-2 text-[10px] font-mono text-[#0098EA] focus:outline-none"
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* USDT TRC20 Wallet */}
+                            <div className="mt-2">
+                              <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
+                                Adresse USDT (TRC20)
+                              </label>
+                              <input
+                                type="text"
+                                value={usdtTrc20Wallet}
+                                onChange={(e) => setUsdtTrc20Wallet(e.target.value)}
+                                placeholder="T..."
+                                className="w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-2 text-[10px] font-mono text-white/70 focus:outline-none focus:border-[#00FF41]/30"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* SCREEN A4 — TERMINAL PRÊT */}
+            {step === 4 && (
+              <motion.div
+                key="screen-a4"
                 variants={screenVariants}
                 initial="initial"
                 animate="animate"
@@ -415,7 +857,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                 </div>
 
                 {/* Secure Invite Code Link */}
-                <div className="w-full bg-black/50 border border-white/[0.06] rounded-xl p-4 relative overflow-hidden">
+                <div className="w-full bg-black/50 border border-white/[0.06] rounded-xl p-4 relative overflow-hidden text-left">
                   <span className="absolute right-3 top-2.5 font-mono text-[7px] text-[rgba(255,255,255,0.25)] tracking-widest uppercase">SSL SECURE</span>
                   <label className="block font-mono text-[7px] tracking-[0.2em] text-[#00FF41]/50 uppercase mb-2">
                     LIEN UNIQUE D'INVITATION
@@ -429,7 +871,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                 <motion.button
                   whileTap={{ scale: 0.98 }}
                   onClick={handleCopy}
-                  className={`w-full h-11 rounded-xl font-mono text-[10px] font-bold uppercase tracking-[0.1em] border transition-all duration-200 ${
+                  className={`w-full h-11 rounded-xl font-mono text-[10px] font-bold uppercase tracking-[0.1em] border transition-all duration-200 cursor-pointer ${
                     copied 
                       ? 'bg-[#00FF41]/[0.08] border-[#00FF41]/40 text-[#00FF41] shadow-[0_0_15px_rgba(0,255,65,0.1)]'
                       : 'bg-white/[0.02] border-white/[0.08] text-[rgba(255,255,255,0.6)] hover:bg-white/[0.05] hover:text-white'
@@ -468,7 +910,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                   type="button"
                   onClick={handleSkip}
                   disabled={isSaving}
-                  className="font-mono text-[9px] text-[rgba(255,255,255,0.25)] hover:text-white uppercase tracking-wider underline transition-colors"
+                  className="font-mono text-[9px] text-[rgba(255,255,255,0.25)] hover:text-white uppercase tracking-wider underline transition-colors bg-transparent border-none cursor-pointer"
                 >
                   Déployer avec les valeurs par défaut
                 </button>
@@ -495,6 +937,24 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
           )}
 
           {step === 3 && (
+            <div className="flex justify-end w-full">
+              <motion.button
+                whileTap={isStep3Enabled ? { scale: 0.97 } : undefined}
+                onClick={handleStep3Submit}
+                disabled={!isStep3Enabled || isSaving}
+                className={`px-7 py-3 rounded-full font-sans text-xs font-black tracking-wide uppercase transition-all duration-200 flex items-center gap-1.5 shadow-md ${
+                  isStep3Enabled && !isSaving
+                    ? 'bg-white text-black hover:bg-gray-100 cursor-pointer'
+                    : 'bg-white/10 text-white/30 cursor-not-allowed'
+                }`}
+              >
+                {isSaving ? 'CHARGEMENT...' : 'SUIVANT'}
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-chevron-right"><path d="m9 18 6-6-6-6"/></svg>
+              </motion.button>
+            </div>
+          )}
+
+          {step === 4 && (
             <motion.button
               whileTap={{ scale: 0.98 }}
               onClick={handleFinish}

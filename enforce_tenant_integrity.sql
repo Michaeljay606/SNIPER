@@ -29,7 +29,7 @@ BEGIN
   -- Special case for 'affiliates' table: 
   -- When a user is first creating their affiliate record, v_authorized_tenant_id will be NULL.
   -- We allow the insert but we should verify the tenant_id exists.
-  IF TG_TABLE_NAME = 'affiliates' AND v_authorized_tenant_id IS NULL THEN
+  IF TG_TABLE_NAME::text ILIKE '%affiliates%' AND v_authorized_tenant_id IS NULL THEN
      IF NEW.tenant_id IS NULL THEN
         RAISE EXCEPTION 'tenant_id is required for registration';
      END IF;
@@ -51,7 +51,7 @@ BEGIN
     END IF;
   ELSE
     -- If no tenant association found and not service_role, deny the operation
-    RAISE EXCEPTION 'Security Violation: User profile (affiliate) not found or not linked to a tenant.';
+    RAISE EXCEPTION 'Security Violation: User profile (affiliate) not found or not linked to a tenant. Table: %, Role: %', TG_TABLE_NAME, v_current_role;
   END IF;
 
   RETURN NEW;
@@ -119,3 +119,51 @@ END $$;
 
 -- 3. Refresh PostgREST cache
 NOTIFY pgrst, 'reload schema';
+
+-- 4. MANDATORY GRANTS (Required from May 30 2026)
+-- Applique les droits d'accès à toutes les tables concernées par les triggers pour éviter l'erreur 42501
+
+-- signals
+GRANT SELECT ON public.signals TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.signals TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.signals TO service_role;
+
+-- academy_modules
+GRANT SELECT ON public.academy_modules TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.academy_modules TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.academy_modules TO service_role;
+
+-- academy_lessons
+GRANT SELECT ON public.academy_lessons TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.academy_lessons TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.academy_lessons TO service_role;
+
+-- live_positions
+GRANT SELECT ON public.live_positions TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.live_positions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.live_positions TO service_role;
+
+-- app_settings
+GRANT SELECT ON public.app_settings TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.app_settings TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.app_settings TO service_role;
+
+-- mentor_badges
+GRANT SELECT ON public.mentor_badges TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.mentor_badges TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.mentor_badges TO service_role;
+
+-- payment_transactions
+GRANT SELECT ON public.payment_transactions TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.payment_transactions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.payment_transactions TO service_role;
+
+-- user_subscriptions
+GRANT SELECT ON public.user_subscriptions TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_subscriptions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_subscriptions TO service_role;
+
+-- affiliates
+GRANT SELECT ON public.affiliates TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.affiliates TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.affiliates TO service_role;

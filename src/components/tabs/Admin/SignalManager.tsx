@@ -20,6 +20,7 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
   const queryClient = useQueryClient();
   const tradingMode = (config?.tradingMode as 'forex' | 'binary' | 'both') ?? 'forex';
   const [activeForm, setActiveForm] = useState<'forex' | 'binary'>('forex');
+  const binaryTerminology = config?.wallets?.binary_terminology || 'callput';
 
   // Sanitize signal list to prevent duplicates
   const uniqueSignals = useMemo(() => {
@@ -128,8 +129,35 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
 
   const refresh = async () => {
     try {
-      const { data } = await supabase.from('signals').select('*').eq('tenant_id', tid).order('timestamp', { ascending: false }).limit(20);
-      if (data) setLiveSignals(data);
+      const [activeRes, recentRes] = await Promise.all([
+        supabase.from('signals')
+          .select('*')
+          .eq('tenant_id', tid)
+          .in('status', ['active', 'tp1_hit', 'tp2_hit']),
+        supabase.from('signals')
+          .select('*')
+          .eq('tenant_id', tid)
+          .order('timestamp', { ascending: false })
+          .limit(50)
+      ]);
+
+      const activeData = activeRes.data || [];
+      const recentData = recentRes.data || [];
+
+      const combined = [...activeData, ...recentData];
+      const uniqueMap = new Map();
+      combined.forEach(s => {
+        if (s && s.id) uniqueMap.set(s.id, s);
+      });
+      const uniqueList = Array.from(uniqueMap.values());
+
+      uniqueList.sort((a, b) => {
+        const aTime = new Date(a.timestamp || a.created_at || 0).getTime();
+        const bTime = new Date(b.timestamp || b.created_at || 0).getTime();
+        return bTime - aTime;
+      });
+
+      setLiveSignals(uniqueList);
     } catch (e: any) { 
       console.error('Refresh error:', e);
       onShowToast(`Erreur de sync: ${e.message || 'Inconnue'}`, 'error'); 
@@ -311,6 +339,59 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
     finally { setLoading(false); }
   };
 
+  const updateBinaryTerminology = async (terminology: 'callput' | 'updown') => {
+    // 1. OPTIMISTIC UPDATE: Instantly update TanStack query cache to make UI change at 0ms latency!
+    const previousConfig: any = queryClient.getQueryData(['config', tid]);
+    const currentWallets = previousConfig?.wallets || {};
+    const updatedWallets = {
+      ...currentWallets,
+      binary_terminology: terminology
+    };
+    
+    queryClient.setQueryData(['config', tid], (old: any) => {
+      if (!old) return old;
+      return {
+        ...old,
+        wallets: updatedWallets
+      };
+    });
+
+    // 2. Perform the async database operations in the background
+    try {
+      const { data: tenantData, error: fetchError } = await supabase
+        .from('tenants')
+        .select('wallets')
+        .eq('tenant_id', tid)
+        .single();
+        
+      if (fetchError) throw fetchError;
+      
+      const latestWallets = {
+        ...(tenantData?.wallets || {}),
+        binary_terminology: terminology
+      };
+      
+      const { error: updateError } = await supabase
+        .from('tenants')
+        .update({ wallets: latestWallets })
+        .eq('tenant_id', tid);
+        
+      if (updateError) throw updateError;
+      
+      // Invalidate query in the background to ensure consistency
+      queryClient.invalidateQueries({ queryKey: ['config', tid] });
+      onShowToast('Terminologie binaire mise à jour !', 'success');
+    } catch (error: any) {
+      console.error('Error updating binary terminology:', error);
+      onShowToast(`Erreur lors de la mise à jour: ${error.message || 'Inconnue'}`, 'error');
+      
+      // Rollback to previous state on failure
+      if (previousConfig) {
+        queryClient.setQueryData(['config', tid], previousConfig);
+      }
+    }
+  };
+
   const updateStatus = async (id: string, status: string, rr: string) => {
     // 1. Optimistic local state updates for instant (0ms) UI response
     setLiveSignals(prev => prev.map(s => s.id === id ? { ...s, status, rr } : s));
@@ -434,17 +515,50 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
           </div>
           
           <div>
-            <label style={{ display: 'block', fontSize: 9, color: 'var(--muted)', marginBottom: 6, fontWeight: 700, textTransform: 'uppercase' }}>DIRECTION</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <label style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', margin: 0 }}>DIRECTION</label>
+              {activeForm === 'binary' && (
+                <div style={{ display: 'flex', background: 'rgba(0,0,0,0.5)', borderRadius: 6, border: '1px solid rgba(255,255,255,0.08)', padding: 1.5, alignItems: 'center' }}>
+                  {(['callput', 'updown'] as const).map(term => (
+                    <button
+                      key={term}
+                      type="button"
+                      onClick={() => updateBinaryTerminology(term)}
+                      style={{
+                        padding: '2px 6px',
+                        fontSize: 8,
+                        fontWeight: 800,
+                        fontFamily: 'var(--mono)',
+                        textTransform: 'uppercase',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        background: binaryTerminology === term ? 'rgba(139,92,246,0.18)' : 'transparent',
+                        color: binaryTerminology === term ? '#C084FC' : 'rgba(255,255,255,0.3)',
+                        border: `1px solid ${binaryTerminology === term ? 'rgba(139,92,246,0.35)' : 'transparent'}`,
+                        boxShadow: binaryTerminology === term ? '0 0 6px rgba(139,92,246,0.2)' : 'none'
+                      }}
+                    >
+                      {term === 'callput' ? 'C/P' : 'U/D'}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <div style={{ display: 'flex', gap: 4 }}>
               {activeForm === 'forex' ? (
                 <>
-                  <button onClick={() => setDirection('BUY')} style={{ flex: 1, padding: 10, borderRadius: 8, border: 'none', background: direction === 'BUY' ? 'var(--green)' : 'rgba(255,255,255,0.05)', color: direction === 'BUY' ? '#000' : '#fff', cursor: 'pointer' }}><ArrowUpRight size={14} /></button>
-                  <button onClick={() => setDirection('SELL')} style={{ flex: 1, padding: 10, borderRadius: 8, border: 'none', background: direction === 'SELL' ? 'var(--red)' : 'rgba(255,255,255,0.05)', color: direction === 'SELL' ? '#fff' : '#fff', cursor: 'pointer' }}><ArrowDownRight size={14} /></button>
+                  <button type="button" onClick={() => setDirection('BUY')} style={{ flex: 1, padding: 10, borderRadius: 8, border: 'none', background: direction === 'BUY' ? 'var(--green)' : 'rgba(255,255,255,0.05)', color: direction === 'BUY' ? '#000' : '#fff', cursor: 'pointer' }}><ArrowUpRight size={14} /></button>
+                  <button type="button" onClick={() => setDirection('SELL')} style={{ flex: 1, padding: 10, borderRadius: 8, border: 'none', background: direction === 'SELL' ? 'var(--red)' : 'rgba(255,255,255,0.05)', color: direction === 'SELL' ? '#fff' : '#fff', cursor: 'pointer' }}><ArrowDownRight size={14} /></button>
                 </>
               ) : (
                 <>
-                  <button onClick={() => setDirection('CALL')} style={{ flex: 1, padding: 10, borderRadius: 8, border: 'none', background: direction === 'CALL' ? 'var(--green)' : 'rgba(255,255,255,0.05)', color: direction === 'CALL' ? '#000' : '#fff', cursor: 'pointer' }}>CALL</button>
-                  <button onClick={() => setDirection('PUT')} style={{ flex: 1, padding: 10, borderRadius: 8, border: 'none', background: direction === 'PUT' ? 'var(--red)' : 'rgba(255,255,255,0.05)', color: direction === 'PUT' ? '#fff' : '#fff', cursor: 'pointer' }}>PUT</button>
+                  <button type="button" onClick={() => setDirection('CALL')} style={{ flex: 1, padding: 10, borderRadius: 8, border: 'none', background: direction === 'CALL' ? 'var(--green)' : 'rgba(255,255,255,0.05)', color: direction === 'CALL' ? '#000' : '#fff', cursor: 'pointer', fontFamily: 'var(--mono)', fontWeight: 800 }}>
+                    {binaryTerminology === 'updown' ? 'UP ▲' : 'CALL'}
+                  </button>
+                  <button type="button" onClick={() => setDirection('PUT')} style={{ flex: 1, padding: 10, borderRadius: 8, border: 'none', background: direction === 'PUT' ? 'var(--red)' : 'rgba(255,255,255,0.05)', color: direction === 'PUT' ? '#fff' : '#fff', cursor: 'pointer', fontFamily: 'var(--mono)', fontWeight: 800 }}>
+                    {binaryTerminology === 'updown' ? 'DOWN ▼' : 'PUT'}
+                  </button>
                 </>
               )}
             </div>
@@ -456,7 +570,7 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <label style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: 'var(--green)', margin: 0 }}>
-                      ⏳ PRIX OU HEURE D'ENTRÉE (CALL)
+                      ⏳ PRIX OU HEURE D'ENTRÉE ({activeForm === 'binary' ? (binaryTerminology === 'updown' ? 'UP' : 'CALL') : 'BUY'})
                     </label>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button type="button" onClick={() => { setEntryLow('MKT'); setEntryHigh(''); }} style={{ background: entryLow === 'MKT' ? 'rgba(0,255,65,0.15)' : 'rgba(255,255,255,0.02)', border: entryLow === 'MKT' ? '1px solid rgba(0,255,65,0.3)' : '1px solid transparent', borderRadius: 4, color: entryLow === 'MKT' ? 'var(--green)' : 'var(--muted)', fontSize: 8, cursor: 'pointer', fontWeight: 800, padding: '2px 6px', fontFamily: 'var(--mono)', transition: 'all 0.15s' }}>MKT</button>
@@ -487,7 +601,7 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <label style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: 'var(--red)', margin: 0 }}>
-                      ⏳ PRIX OU HEURE D'ENTRÉE (PUT)
+                      ⏳ PRIX OU HEURE D'ENTRÉE ({activeForm === 'binary' ? (binaryTerminology === 'updown' ? 'DOWN' : 'PUT') : 'SELL'})
                     </label>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button type="button" onClick={() => { setEntryHigh('MKT'); setEntryLow(''); }} style={{ background: entryHigh === 'MKT' ? 'rgba(255,59,48,0.15)' : 'rgba(255,255,255,0.02)', border: entryHigh === 'MKT' ? '1px solid rgba(255,59,48,0.3)' : '1px solid transparent', borderRadius: 4, color: entryHigh === 'MKT' ? 'var(--red)' : 'var(--muted)', fontSize: 8, cursor: 'pointer', fontWeight: 800, padding: '2px 6px', fontFamily: 'var(--mono)', transition: 'all 0.15s' }}>MKT</button>
@@ -986,7 +1100,14 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
               <div>
                 <p style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700 }}>{sig.pair}</p>
                 <p style={{ fontSize: 8, color: 'var(--amber)', textTransform: 'uppercase', marginTop: 2 }}>
-                  {sig.direction} · {sig.entry_low} — {sig.entry_high}
+                  {(() => {
+                    const isB = (sig.mode || 'forex') === 'binary';
+                    if (isB) {
+                      if (sig.direction === 'CALL') return binaryTerminology === 'updown' ? 'UP' : 'CALL';
+                      if (sig.direction === 'PUT') return binaryTerminology === 'updown' ? 'DOWN' : 'PUT';
+                    }
+                    return sig.direction;
+                  })()} · {sig.entry_low} — {sig.entry_high}
                 </p>
                 {sig.analysis_note && <p style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontStyle: 'italic', marginTop: 2 }}>"{sig.analysis_note.substring(0, 50)}{sig.analysis_note.length > 50 ? '...' : ''}"</p>}
               </div>
@@ -1005,7 +1126,20 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
           <Activity size={11} /> HISTORIQUE RÉCENT ({displaySignals.filter(s => s.signal_type !== 'WATCH').length})
         </p>
 
-        {displaySignals.filter(s => s.signal_type !== 'WATCH').map(sig => {
+        {displaySignals
+          .filter(s => s.signal_type !== 'WATCH')
+          .sort((a, b) => {
+            const aActive = ['active', 'tp1_hit', 'tp2_hit'].includes(a.status);
+            const bActive = ['active', 'tp1_hit', 'tp2_hit'].includes(b.status);
+
+            if (aActive && !bActive) return -1;
+            if (!aActive && bActive) return 1;
+
+            const aTime = new Date(a.timestamp || a.created_at || 0).getTime();
+            const bTime = new Date(b.timestamp || b.created_at || 0).getTime();
+            return bTime - aTime;
+          })
+          .map(sig => {
           const isPending = pending?.id === sig.id;
           const isLoading = updatingId === sig.id;
           const isBin = (sig.mode || 'forex') === 'binary';
@@ -1016,7 +1150,15 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
               <div>
                 <p style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700 }}>{sig.pair}</p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <p style={{ fontSize: 8, color: 'var(--muted)', textTransform: 'uppercase' }}>{isBin ? 'Binaire' : 'Forex'} · {sig.direction}</p>
+                  <p style={{ fontSize: 8, color: 'var(--muted)', textTransform: 'uppercase' }}>
+                    {isBin ? 'Binaire' : 'Forex'} · {(() => {
+                      if (isBin) {
+                        if (sig.direction === 'CALL') return binaryTerminology === 'updown' ? 'UP ▲' : 'CALL';
+                        if (sig.direction === 'PUT') return binaryTerminology === 'updown' ? 'DOWN ▼' : 'PUT';
+                      }
+                      return sig.direction;
+                    })()}
+                  </p>
                   {!isActive && (
                     <span style={{ fontSize: 7, padding: '1px 5px', borderRadius: 4, background: sig.status === 'tp' ? 'rgba(0,255,65,0.1)' : 'rgba(255,59,48,0.1)', color: sig.status === 'tp' ? 'var(--green)' : 'var(--red)', fontWeight: 700 }}>
                       {sig.status.toUpperCase()} {sig.rr && `(${sig.rr})`}
@@ -1024,7 +1166,7 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
                   )}
                   {isActive && sig.status !== 'active' && (
                     <span style={{ fontSize: 7, padding: '1px 5px', borderRadius: 4, background: 'rgba(0,255,65,0.15)', color: 'var(--green)', fontWeight: 800 }}>
-                      {sig.status.replace('_hit', ' HIT').toUpperCase()}
+                      {sig.status.replace('_hit', ' HIT').toUpperCase()} {sig.rr && `(${sig.rr})`}
                     </span>
                   )}
                 </div>
@@ -1032,7 +1174,10 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
 
               {isActive ? (
                 isPending ? (
-                  <div style={{ display: 'flex', gap: 6 }}>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <span style={{ fontSize: 9, fontFamily: 'var(--mono)', color: pending.status.includes('sl') ? 'var(--red)' : 'var(--green)', fontWeight: 800 }}>
+                      {pending.status === 'tp1_hit' ? 'TP1 :' : pending.status === 'tp2_hit' ? 'TP2 :' : pending.status === 'tp' ? 'CLÔTURE :' : 'SL :'}
+                    </span>
                     <input value={pending.val} onChange={e => setPending({ ...pending, val: e.target.value })} placeholder={isBin ? '$ Gain' : 'Pips'} style={{ width: 60, background: 'rgba(0,0,0,0.4)', border: '1px solid var(--green)', borderRadius: 6, fontSize: 10, padding: 6, color: '#fff' }} />
                     <button onClick={() => updateStatus(sig.id, pending.status, pending.val)} style={{ padding: 8, background: 'var(--green)', border: 'none', borderRadius: 6 }}><Check size={12} /></button>
                     <button onClick={() => setPending(null)} style={{ padding: 8, background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 6 }}><X size={12} /></button>
@@ -1042,8 +1187,49 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
                     <button onClick={() => startEdit(sig)} style={{ padding: 8, background: 'rgba(255,255,255,0.05)', borderRadius: 6, border: 'none', color: 'var(--muted)' }}><Activity size={12} /></button>
                     {!isBin ? (
                       <>
-                        <button onClick={() => updateStatus(sig.id, sig.status === 'tp1_hit' ? 'active' : 'tp1_hit', '')} style={{ padding: '6px 8px', background: sig.status === 'tp1_hit' ? 'rgba(0,255,65,0.25)' : 'rgba(0,255,65,0.08)', color: 'var(--green)', border: sig.status === 'tp1_hit' ? '1px solid var(--green)' : 'none', borderRadius: 6, fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>TP1</button>
-                        <button onClick={() => updateStatus(sig.id, sig.status === 'tp2_hit' ? 'active' : 'tp2_hit', '')} style={{ padding: '6px 8px', background: sig.status === 'tp2_hit' ? 'rgba(0,255,65,0.25)' : 'rgba(0,255,65,0.08)', color: 'var(--green)', border: sig.status === 'tp2_hit' ? '1px solid var(--green)' : 'none', borderRadius: 6, fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>TP2</button>
+                        <button
+                          onClick={() => {
+                            if (sig.status === 'tp1_hit' || sig.status === 'tp2_hit') {
+                              updateStatus(sig.id, 'active', '');
+                            } else {
+                              setPending({ id: sig.id, status: 'tp1_hit', val: sig.rr || '' });
+                            }
+                          }}
+                          style={{
+                            padding: '6px 8px',
+                            background: (sig.status === 'tp1_hit' || sig.status === 'tp2_hit') ? 'rgba(0,255,65,0.25)' : 'rgba(0,255,65,0.08)',
+                            color: 'var(--green)',
+                            border: (sig.status === 'tp1_hit' || sig.status === 'tp2_hit') ? '1px solid var(--green)' : 'none',
+                            borderRadius: 6,
+                            fontSize: 9,
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          TP1
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            if (sig.status === 'tp2_hit') {
+                              updateStatus(sig.id, 'tp1_hit', sig.rr || '');
+                            } else {
+                              setPending({ id: sig.id, status: 'tp2_hit', val: sig.rr || '' });
+                            }
+                          }}
+                          style={{
+                            padding: '6px 8px',
+                            background: sig.status === 'tp2_hit' ? 'rgba(0,255,65,0.25)' : 'rgba(0,255,65,0.08)',
+                            color: 'var(--green)',
+                            border: sig.status === 'tp2_hit' ? '1px solid var(--green)' : 'none',
+                            borderRadius: 6,
+                            fontSize: 9,
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          TP2
+                        </button>
                         <button onClick={() => setPending({ id: sig.id, status: 'tp', val: '' })} style={{ padding: '6px 8px', background: 'rgba(0,255,65,0.15)', color: '#00FF41', border: '1px solid rgba(0,255,65,0.3)', borderRadius: 6, fontSize: 9, fontWeight: 800, cursor: 'pointer' }}>CLÔTURE</button>
                       </>
                     ) : (

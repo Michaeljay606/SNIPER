@@ -58,18 +58,28 @@ export function useUserRole(): UserRole {
   const telegramId = telegramIdStr ? Number(telegramIdStr) : null;
 
   const fetchUser = useCallback(async () => {
-    if (!isSupabaseConfigured || !telegramId) {
+    if (!isSupabaseConfigured) {
       setIsLoading(false);
       return;
     }
 
     try {
-      const { data, error } = await supabase
-        .from('affiliates')
-        .select('*')
-        .eq('tenant_id', TENANT_ID)
-        .eq('telegram_id', telegramId)
-        .single();
+      let query = supabase.from('affiliates').select('*').eq('tenant_id', TENANT_ID);
+
+      if (telegramId) {
+        query = query.eq('telegram_id', telegramId);
+      } else {
+        // Fallback for local browser testing outside Telegram
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.id) {
+          query = query.eq('id', user.id);
+        } else {
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      const { data, error } = await query.single();
 
       if (error && error.code !== 'PGRST116') {
         console.error('useUserRole: Error fetching affiliate:', error);

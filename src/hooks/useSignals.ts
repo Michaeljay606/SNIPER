@@ -85,7 +85,8 @@ export function useSignals(tenantId: string, tradingMode: 'forex' | 'binary' | '
       }
       return allSignals;
     },
-    staleTime: 1000 * 5, // 5 seconds safety net
+    staleTime: 0, // Set to 0 to ensure refetches are always run immediately when requested
+    refetchInterval: 1000, // Poll every 1 second to guarantee near-instantaneous updates in the UI
     retry: 0,
   });
 
@@ -97,7 +98,9 @@ export function useSignals(tenantId: string, tradingMode: 'forex' | 'binary' | '
         'postgres_changes', 
         { event: '*', schema: 'public', table: 'signals', filter: `tenant_id=eq.${tid}` }, 
         (payload) => {
+          // Immediately invalidate and force refetch all signals query keys for this tenant
           queryClient.invalidateQueries({ queryKey: ['signals', tid] });
+          queryClient.refetchQueries({ queryKey: ['signals', tid] });
         }
       )
       .subscribe();

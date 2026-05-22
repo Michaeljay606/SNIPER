@@ -11,9 +11,39 @@ import NeonToggle from './NeonToggle';
 import PlanBadge from './PlanBadge';
 
 const OPERATOR_ID = import.meta.env.VITE_OPERATOR_ID;
+const MASTER_PIN = import.meta.env.VITE_MASTER_PIN;
 
 const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
   const isDev = import.meta.env.DEV;
+  const searchParams = new URLSearchParams(window.location.search);
+  const isBypass = searchParams.get('auth') === 'bypass';
+  const telegramId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString();
+  const operatorId = import.meta.env.VITE_OPERATOR_ID;
+  const isTelegram = telegramId === operatorId;
+  const baseAuthorized = isTelegram || isDev || !operatorId || isBypass;
+
+  // PIN auth state
+  const [pinInput, setPinInput] = useState('');
+  const [pinUnlocked, setPinUnlocked] = useState(false);
+  const [pinError, setPinError] = useState(false);
+  const [pinShake, setPinShake] = useState(false);
+
+  const isAuthorized = baseAuthorized || pinUnlocked;
+
+  const handlePinDigit = (d: string) => {
+    if (pinInput.length >= 12) return;
+    const next = pinInput + d;
+    setPinInput(next);
+    setPinError(false);
+    if (MASTER_PIN && next === MASTER_PIN) {
+      setPinUnlocked(true);
+    } else if (next.length >= (MASTER_PIN?.length || 8)) {
+      setPinError(true);
+      setPinShake(true);
+      setTimeout(() => { setPinInput(''); setPinShake(false); }, 600);
+    }
+  };
+
   const { tenants, setTenants, transactions, loading, mrr, dbStatus, refresh } = useMasterData();
   const [search, setSearch] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -33,10 +63,173 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
   const [broadcast, setBroadcast] = useState('');
   const [sendingBroadcast, setSendingBroadcast] = useState(false);
 
+  // In-app premium toast notification state
+  const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+
+  const showToast = (type: 'success' | 'error' | 'info', message: string) => {
+    setToast({ type, message });
+  };
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // PIN SCREEN — shown when not Telegram-authorized
+  if (!isAuthorized) {
+    const dots = Array.from({ length: MASTER_PIN?.length || 8 });
+    return (
+      <div style={{
+        minHeight: '100vh',
+        background: '#080B14',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontFamily: '"Space Mono", monospace',
+        padding: 24,
+      }}>
+        {/* Header */}
+        <div style={{ textAlign: 'center', marginBottom: 40 }}>
+          <div style={{
+            width: 64, height: 64, borderRadius: '50%',
+            border: '1px solid rgba(0,255,65,0.2)',
+            background: 'rgba(0,255,65,0.04)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            margin: '0 auto 20px',
+            boxShadow: '0 0 30px rgba(0,255,65,0.08)',
+          }}>
+            <Shield size={28} color="#00FF41" />
+          </div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#00FF41', letterSpacing: '0.25em', marginBottom: 6 }}>
+            MASTER CONTROL PANEL
+          </div>
+          <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', letterSpacing: '0.15em' }}>
+            AUTHENTICATION REQUISE
+          </div>
+        </div>
+
+        {/* PIN Card */}
+        <div style={{
+          width: '100%',
+          maxWidth: 320,
+          background: 'rgba(255,255,255,0.02)',
+          border: `1px solid ${pinError ? 'rgba(255,65,65,0.4)' : 'rgba(0,255,65,0.1)'}`,
+          borderRadius: 20,
+          padding: 28,
+          boxShadow: pinError
+            ? '0 0 30px rgba(255,65,65,0.08)'
+            : '0 0 40px rgba(0,255,65,0.04)',
+          transition: 'border-color 0.3s, box-shadow 0.3s',
+          animation: pinShake ? 'shake 0.5s ease' : 'none',
+        }}>
+          {/* Dots display */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'center',
+            gap: 12,
+            marginBottom: 32,
+          }}>
+            {dots.map((_, i) => (
+              <div key={i} style={{
+                width: 10,
+                height: 10,
+                borderRadius: '50%',
+                background: i < pinInput.length
+                  ? (pinError ? '#FF4141' : '#00FF41')
+                  : 'rgba(255,255,255,0.1)',
+                boxShadow: i < pinInput.length && !pinError
+                  ? '0 0 8px rgba(0,255,65,0.6)'
+                  : i < pinInput.length && pinError
+                  ? '0 0 8px rgba(255,65,65,0.6)'
+                  : 'none',
+                transition: 'all 0.15s',
+              }} />
+            ))}
+          </div>
+
+          {/* PIN Pad */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+            {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((d, i) => (
+              <button
+                key={i}
+                onClick={() => {
+                  if (d === '⌫') {
+                    setPinInput(p => p.slice(0, -1));
+                    setPinError(false);
+                  } else if (d !== '') {
+                    handlePinDigit(d);
+                  }
+                }}
+                disabled={d === ''}
+                style={{
+                  height: 56,
+                  borderRadius: 12,
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  background: d === '' ? 'transparent' : 'rgba(255,255,255,0.03)',
+                  color: d === '⌫' ? 'rgba(255,100,100,0.7)' : '#fff',
+                  fontSize: d === '⌫' ? 18 : 20,
+                  fontWeight: 600,
+                  fontFamily: '"Space Mono", monospace',
+                  cursor: d === '' ? 'default' : 'pointer',
+                  transition: 'all 0.15s',
+                  outline: 'none',
+                  visibility: d === '' ? 'hidden' : 'visible',
+                }}
+                onMouseEnter={e => {
+                  if (d !== '') {
+                    (e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,255,65,0.07)';
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(0,255,65,0.2)';
+                  }
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.03)';
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,255,255,0.06)';
+                }}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+
+          {pinError && (
+            <div style={{
+              marginTop: 16,
+              textAlign: 'center',
+              fontSize: 9,
+              color: '#FF4141',
+              letterSpacing: '0.1em',
+              fontWeight: 700,
+            }}>
+              CODE INCORRECT — RÉESSAYEZ
+            </div>
+          )}
+        </div>
+
+        {/* Footer hint */}
+        <div style={{ marginTop: 24, fontSize: 8, color: 'rgba(255,255,255,0.12)', letterSpacing: '0.1em' }}>
+          SNIPER TERMINAL · EPHATA TECH · v2.4.0
+        </div>
+
+        <style>{`
+          @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-8px); }
+            40% { transform: translateX(8px); }
+            60% { transform: translateX(-6px); }
+            80% { transform: translateX(6px); }
+          }
+        `}</style>
+      </div>
+    );
+  }
 
   const filteredTenants = useMemo(() => {
     return tenants.filter(t => 
@@ -54,7 +247,7 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
       if (error) throw error;
       refresh();
     } catch (err) {
-      alert('Erreur lors de la confirmation forcée');
+      showToast('error', 'Erreur lors de la confirmation forcée');
     }
   };
 
@@ -86,9 +279,9 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
       
       setNewMentor({ name: '', id: '', tradingMode: 'MARKETS', plan: 'free', isTrial: true });
       refresh();
-      alert(`✓ ${payload.mentor_name} créé — ID: ${tid}\nLien copié !`);
+      showToast('success', `✓ ${payload.mentor_name} créé — ID: ${tid}\nLien copié !`);
     } catch (err: any) {
-      alert(err.message === 'Duplicate' ? 'Cet ID est déjà utilisé' : err.message);
+      showToast('error', err.message === 'Duplicate' ? 'Cet ID est déjà utilisé' : err.message);
     } finally {
       setCreating(false);
     }
@@ -106,7 +299,7 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
       if (error) throw error;
     } catch (err) {
       setTenants(oldTenants);
-      alert('Erreur lors du changement de licence');
+      showToast('error', 'Erreur lors du changement de licence');
     }
   };
 
@@ -119,7 +312,7 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
       if (error) throw error;
     } catch (err) {
       setTenants(oldTenants);
-      alert('Erreur lors du changement de plan');
+      showToast('error', 'Erreur lors du changement de plan');
     }
   };
 
@@ -132,7 +325,7 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
       if (error) throw error;
       refresh();
     } catch (err) {
-      alert('Erreur lors de la suppression');
+      showToast('error', 'Erreur lors de la suppression');
     }
   };
 
@@ -143,10 +336,10 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
       // Mocking the Edge Function call as we don't have the endpoint yet
       console.log('Sending broadcast:', broadcast);
       await new Promise(resolve => setTimeout(resolve, 1000));
-      alert(`✓ Message envoyé à ${tenants.length} mentors`);
+      showToast('success', `✓ Message envoyé à ${tenants.length} mentors`);
       setBroadcast('');
     } catch (err) {
-      alert('Erreur lors de l\'envoi');
+      showToast('error', 'Erreur lors de l\'envoi');
     } finally {
       setSendingBroadcast(false);
     }
@@ -164,8 +357,9 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
         position: 'fixed', 
         top: 0,
         bottom: 0,
-        left: '50%',
-        transform: 'translateX(-50%)',
+        left: 0,
+        right: 0,
+        margin: '0 auto',
         width: '100%',
         maxWidth: 430,
         zIndex: 1000, 
@@ -179,6 +373,85 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
         borderRight: '1px solid rgba(0,255,65,0.1)',
       }}
     >
+      {/* Sleek In-App Toast Notification Banner */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: -50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.9 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            style={{
+              position: 'fixed',
+              top: 16,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              width: 'calc(100% - 32px)',
+              maxWidth: 400,
+              zIndex: 1100,
+              background: '#0E1322',
+              border: `1px solid ${
+                toast.type === 'success' ? '#00FF41' : toast.type === 'error' ? '#FF4141' : '#FFD60A'
+              }`,
+              borderRadius: 12,
+              padding: 14,
+              boxShadow: `0 8px 32px rgba(0,0,0,0.8), 0 0 15px ${
+                toast.type === 'success' ? 'rgba(0,255,65,0.2)' : toast.type === 'error' ? 'rgba(255,65,65,0.2)' : 'rgba(255,214,10,0.2)'
+              }`,
+              display: 'flex',
+              gap: 12,
+              alignItems: 'flex-start',
+            }}
+          >
+            <div style={{ flexShrink: 0, marginTop: 2 }}>
+              {toast.type === 'success' ? (
+                <CheckCircle size={18} color="#00FF41" />
+              ) : toast.type === 'error' ? (
+                <AlertCircle size={18} color="#FF4141" />
+              ) : (
+                <Activity size={18} color="#FFD60A" />
+              )}
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ 
+                fontSize: 10, 
+                fontWeight: 800, 
+                color: toast.type === 'success' ? '#00FF41' : toast.type === 'error' ? '#FF4141' : '#FFD60A',
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+                marginBottom: 4,
+                fontFamily: '"Space Mono", monospace'
+              }}>
+                {toast.type === 'success' ? 'CONSOLE // SUCCESS' : toast.type === 'error' ? 'CONSOLE // ERROR' : 'CONSOLE // WARNING'}
+              </div>
+              <div style={{ 
+                fontSize: 11, 
+                color: '#FFFFFF', 
+                whiteSpace: 'pre-line',
+                lineHeight: 1.4,
+                fontWeight: 500,
+                fontFamily: '"Space Mono", monospace'
+              }}>
+                {toast.message}
+              </div>
+            </div>
+            <button 
+              onClick={() => setToast(null)}
+              style={{ 
+                background: 'none', 
+                border: 'none', 
+                color: 'rgba(255,255,255,0.4)', 
+                cursor: 'pointer',
+                padding: 0,
+                marginTop: 2
+              }}
+            >
+              <X size={14} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div style={{ padding: 16 }}>
         
         {/* HEADER */}

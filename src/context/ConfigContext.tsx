@@ -49,6 +49,7 @@ export interface ClientConfig {
   social_youtube: string;
   social_tiktok: string;
   social_instagram: string;
+  social_facebook: string;
   telegram_contact_url: string;
   whatsapp_url: string;
   // Brokers
@@ -110,6 +111,7 @@ const DEFAULT_CONFIG: ClientConfig = {
   social_youtube: '',
   social_tiktok: '',
   social_instagram: '',
+  social_facebook: '',
   telegram_contact_url: '',
   whatsapp_url: '',
   broker_1_name: '',
@@ -201,6 +203,7 @@ const rowToConfig = (row: any): ClientConfig => ({
   social_youtube: row.social_youtube || '',
   social_tiktok: row.social_tiktok || '',
   social_instagram: row.social_instagram || '',
+  social_facebook: row.social_facebook || '',
   telegram_contact_url: row.telegram_contact_url || '',
   whatsapp_url: row.whatsapp_url || '',
   // Brokers
@@ -219,7 +222,11 @@ const rowToConfig = (row: any): ClientConfig => ({
   // Permissions
   telegramId: row.telegram_id ? Number(row.telegram_id) : null,
   vipModel: (row.vip_model as 'payment' | 'broker' | 'both') || 'payment',
-  academy_model: (row.academy_model as 'payment' | 'broker' | 'both') || 'payment',
+  academy_model: (() => {
+    const m = row.academy_model;
+    if (m === 'free') return 'payment';
+    return (m as 'payment' | 'broker' | 'both') || 'payment';
+  })(),
   academy_price_1m: row.academy_price_1m || '',
   academy_price_lifetime: row.academy_price_lifetime || '',
   academy_duration_model: row.academy_duration_model || 'monthly',
@@ -315,15 +322,6 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // 1. Force the premium 6.5s boot sequence on initial load
   if (!bootAnimDone) {
     return <PremiumLoader onComplete={() => setBootAnimDone(true)} tenantName={config?.mentorName || cachedMentorName || undefined} />;
-  }
-
-  // 2. If boot animation is done but data is still fetching, show a subtle spinner
-  if (isLoading) {
-    return (
-      <div style={{ position: 'fixed', inset: 0, background: '#04070A', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <SniperLogo size={60} animated={true} />
-      </div>
-    );
   }
 
   return (

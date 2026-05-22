@@ -4,7 +4,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js'
 const TONCENTER_API = 'https://toncenter.com/api/v2/getTransactions'
 const TONCENTER_KEY = Deno.env.get('TONCENTER_API_KEY') ?? ''
 
-serve(async (req) => {
+serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', {
       headers: {

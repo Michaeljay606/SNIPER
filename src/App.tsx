@@ -7,11 +7,7 @@ import MemberOnboarding from './components/onboarding/MemberOnboarding';
 
 // Lightweight fallback for React.Suspense
 function SuspenseFallback() {
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: '#080B14', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <SniperLogo size={60} animated={true} />
-    </div>
-  );
+  return null;
 }
 
 // Custom Fallback Screens
@@ -158,6 +154,7 @@ import StudentShell from './layouts/StudentShell';
 import DashboardTab from './components/tabs/DashboardTab';
 import AcademyTab from './components/tabs/AcademyTab';
 import TerminalTab from './components/tabs/TerminalTab';
+import MasterControlPanel from './components/MasterControlPanel';
 
 const PublicShell = lazy(() => import('./layouts/PublicShell'));
 
@@ -201,28 +198,26 @@ export default function App() {
   // Strict Rendering Order for App Routes
   const isAppPath = location.pathname.startsWith('/app/');
   if (isAppPath) {
-    if (configLoading || roleLoading) {
-      return <SuspenseFallback />;
-    }
-
-    if (configError || !config) {
+    if (!configLoading && (configError || !config)) {
       return <TenantNotFound />;
     }
 
-    if (config.licenceStatus === 'suspended') {
-      return <LicenceSuspended />;
-    }
+    if (!configLoading && config) {
+      if (config.licenceStatus === 'suspended') {
+        return <LicenceSuspended />;
+      }
 
-    if (isAdmin && config.onboardingCompleted === false) {
-      return <MentorOnboarding config={config} onComplete={() => refreshConfig()} />;
-    }
+      if (isAdmin && config.onboardingCompleted === false) {
+        return <MentorOnboarding config={config} onComplete={() => refreshConfig()} />;
+      }
 
-    if (!isAdmin && !currentUser) {
-      return <MemberOnboarding config={config} onComplete={() => window.location.reload()} />;
-    }
+      if (!isAdmin && !roleLoading && !currentUser) {
+        return <MemberOnboarding config={config} onComplete={() => window.location.reload()} />;
+      }
 
-    if (isBanned) {
-      return <BannedScreen />;
+      if (isBanned) {
+        return <BannedScreen />;
+      }
     }
   }
 
@@ -243,6 +238,9 @@ export default function App() {
           {/* Admin sub-routes */}
           <Route path="admin/*" element={<AdminTab />} />
         </Route>
+
+        {/* --- MASTER CONTROL PANEL --- */}
+        <Route path="/master" element={<MasterControlPanel onClose={() => navigate('/')} />} />
 
         {/* --- PUBLIC ROUTES --- */}
         <Route path="/" element={<PublicShell />}>

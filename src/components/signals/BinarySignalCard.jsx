@@ -63,7 +63,28 @@ function NouveauBadge() {
  * }}} props
  */
 export default function BinarySignalCard({ signal }) {
+  const [binaryTerminology, setBinaryTerminology] = useState(() => {
+    return localStorage.getItem("binary_terminology") || "callput";
+  });
+
+  useEffect(() => {
+    const handleStorage = () => {
+      setBinaryTerminology(localStorage.getItem("binary_terminology") || "callput");
+    };
+    window.addEventListener("storage", handleStorage);
+    const interval = setInterval(handleStorage, 1000);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      clearInterval(interval);
+    };
+  }, []);
+
   const isCall = signal.direction === "CALL";
+  const dirArrow = isCall ? "▲" : "▼";
+  const dirText = binaryTerminology === "callput"
+    ? (isCall ? "CALL" : "PUT")
+    : (isCall ? "UP" : "DOWN");
+
   const accentColor  = isCall ? T.green : T.red;
   const accentGlow   = isCall ? T.greenGlowStrong : T.redGlow;
   const isNew = signal.isNew ?? false;
@@ -119,22 +140,22 @@ export default function BinarySignalCard({ signal }) {
 
           {/* Direction block — most important element visually */}
           <div style={{
-            display: "flex", alignItems: "center", gap: 6,
-            background: `${accentColor}18`,
-            border: `1px solid ${accentColor}50`,
-            borderRadius: 6, padding: "6px 14px",
+            display: "flex", alignItems: "center", gap: 5,
+            background: `${accentColor}12`,
+            border: `1px solid ${accentColor}40`,
+            borderRadius: 5, padding: "4px 10px",
           }}>
             <span style={{
-              fontSize: 22, fontWeight: 900,
+              fontSize: 18, fontWeight: 900,
               fontFamily: "JetBrains Mono, monospace",
               color: accentColor, letterSpacing: "0.04em",
-              textShadow: `0 0 12px ${accentColor}`,
-            }}>{isCall ? "▲" : "▼"}</span>
+              textShadow: `0 0 8px ${accentColor}`,
+            }}>{dirArrow}</span>
             <span style={{
-              fontSize: 18, fontWeight: 800,
+              fontSize: 14, fontWeight: 800,
               fontFamily: "JetBrains Mono, monospace",
-              color: accentColor, letterSpacing: "0.08em",
-            }}>{signal.direction}</span>
+              color: accentColor, letterSpacing: "0.06em",
+            }}>{dirText}</span>
           </div>
 
           {/* Pair + OTC */}

@@ -16,6 +16,7 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
   const [username, setUsername] = useState('');
   const [isEditableUsername, setIsEditableUsername] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Stats states
   const [memberCount, setMemberCount] = useState<number | null>(null);
@@ -24,8 +25,12 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
 
   const tgUser = (window as any).Telegram?.WebApp?.initDataUnsafe?.user;
 
-  // Pre-fill Telegram data
+  // Pre-fill Telegram data or URL params
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlUsername = params.get('tg_username') || params.get('username');
+    const urlFirstName = params.get('first_name') || params.get('name');
+
     if (tgUser) {
       if (tgUser.first_name) {
         setFirstName(tgUser.first_name);
@@ -36,6 +41,13 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
       } else {
         setUsername('');
         setIsEditableUsername(true);
+      }
+    } else {
+      // Fallback to URL parameters if not in Telegram Mini App
+      if (urlFirstName) setFirstName(urlFirstName);
+      if (urlUsername) {
+        setUsername(urlUsername.startsWith('@') ? urlUsername : '@' + urlUsername);
+        setIsEditableUsername(true); // Still editable just in case
       }
     }
   }, [tgUser]);
@@ -90,25 +102,62 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
   const handleRegister = async () => {
     if (!firstName.trim()) return;
     setIsSaving(true);
+    setError(null);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const email = user?.email || (tgUser?.username ? `${tgUser.username}@telegram.com` : `${tgUser?.id || 'unknown'}@telegram.com`);
-      const id = user?.id;
+      let { data: { user } } = await supabase.auth.getUser();
+      let targetId = user?.id;
 
-      // 1. Insert into affiliates
-      const { error: affiliateError } = await supabase.from('affiliates').insert([{
-        id,
+      // If a user exists, verify they aren't already bound to another tenant (happens during local testing when switching tenants)
+      if (user) {
+        const { data: existingAffiliate } = await supabase
+          .from('affiliates')
+          .select('tenant_id')
+          .eq('id', user.id)
+          .maybeSingle();
+          
+        if (existingAffiliate && existingAffiliate.tenant_id !== TENANT_ID) {
+          // Sign out to force a fresh anonymous session for the new tenant
+          await supabase.auth.signOut();
+          user = null;
+          targetId = undefined;
+        }
+      }
+
+      // If no user exists (or was just signed out), create an auth user to satisfy the affiliates_id_fkey constraint
+      if (!user) {
+        // We use signInAnonymously instead of signUp to avoid "email rate limit exceeded" errors during testing
+        const { data: authData, error: authError } = await supabase.auth.signInAnonymously();
+        if (authError) {
+          if (authError.message.toLowerCase().includes('anonymous')) {
+            throw new Error("Veuillez activer 'Anonymous Sign-ins' dans les paramètres de Supabase (Authentication > Providers) pour tester en local.");
+          }
+          throw new Error("Erreur Auth: " + authError.message);
+        }
+        targetId = authData.user?.id;
+      }
+
+      if (!targetId) {
+        throw new Error("Impossible de générer un ID utilisateur valide.");
+      }
+
+      const email = user?.email || (tgUser?.username ? `${tgUser.username}@telegram.com` : `anon_${targetId?.substring(0,6)}@telegram.com`);
+
+      const payload: any = {
+        id: targetId,
         tenant_id: TENANT_ID,
         telegram_id: tgUser?.id ? String(tgUser.id) : null,
         telegram_username: username ? username.replace('@', '') : (tgUser?.username || null),
         name: firstName,
         email,
-        status: 'pending',
+        status: 'active',
         is_vip: false,
         role: 'user',
         created_at: new Date().toISOString()
-      }]);
+      };
+
+      // 1. Insert into affiliates
+      const { error: affiliateError } = await supabase.from('affiliates').insert([payload]);
 
       if (affiliateError) throw affiliateError;
 
@@ -125,9 +174,9 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
       }
 
       setStep(3);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error registering member:', err);
-      alert('Une erreur est survenue lors de votre inscription. Veuillez réessayer.');
+      setError('Erreur: ' + (err.message || 'Impossible de finaliser l\'inscription.'));
     } finally {
       setIsSaving(false);
     }
@@ -294,6 +343,12 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
                     </p>
                   </div>
 
+                  {error && (
+                    <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-mono">
+                      {error}
+                    </div>
+                  )}
+
                   {/* Form fields */}
                   <div className="space-y-4">
                     
@@ -364,13 +419,13 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
 
                 <div className="text-center space-y-2.5">
                   <span className="font-mono text-[8px] text-[#00FF41] tracking-[0.2em] uppercase font-black block">
-                    TRANSMISSION RÉUSSIE
+                    OPÉRATION RÉUSSIE
                   </span>
                   <h3 className="font-mono text-base font-bold text-white uppercase tracking-tight">
-                    Validation en cours
+                    Inscription terminée
                   </h3>
                   <p className="text-[11px] text-[rgba(255,255,255,0.45)] leading-relaxed max-w-[240px] mx-auto mt-2">
-                    Votre demande a été envoyée. Le mentor a été notifié. Vous serez redirigé automatiquement dès validation.
+                    Votre compte a été créé avec succès. Vous pouvez maintenant accéder au terminal.
                   </p>
                 </div>
               </motion.div>
@@ -416,9 +471,9 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
             <motion.button
               whileTap={{ scale: 0.98 }}
               onClick={handleFinish}
-              className="w-full h-13 bg-white/[0.02] border border-white/[0.08] text-[rgba(255,255,255,0.75)] hover:bg-white/[0.04] hover:text-white rounded-xl font-mono text-[11px] font-black tracking-[0.12em] transition-all uppercase cursor-pointer"
+              className="w-full h-13 bg-gradient-to-r from-[#00FF41] to-[#00E53B] text-[#080B14] shadow-[0_0_24px_rgba(0,255,65,0.25)] hover:shadow-[0_0_32px_rgba(0,255,65,0.4)] rounded-xl font-mono text-[11px] font-black tracking-[0.12em] transition-all uppercase cursor-pointer"
             >
-              ACCÉDER AU TERMINAL EN PREVIEW
+              ACCÉDER AU TERMINAL →
             </motion.button>
           )}
         </div>
