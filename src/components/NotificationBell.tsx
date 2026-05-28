@@ -4,12 +4,14 @@ import { Bell, X, Activity, Check, Trash2, ShieldCheck, GraduationCap, User, Hel
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../lib/supabase';
 import { useUserRole } from '../hooks/useUserRole';
+import { useTranslation } from 'react-i18next';
 
 interface NotificationBellProps {
   tenantId: string;
 }
 
 export default function NotificationBell({ tenantId }: NotificationBellProps) {
+  const { t, i18n } = useTranslation();
   const { currentUser, isAdmin, isVip } = useUserRole();
   const [notifications, setNotifications] = useState<any[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -175,7 +177,6 @@ export default function NotificationBell({ tenantId }: NotificationBellProps) {
     }
   };
 
-  // Timeago helper in French
   const formatTimeAgo = (dateStr: string) => {
     if (!dateStr) return '';
     const now = new Date();
@@ -187,11 +188,11 @@ export default function NotificationBell({ tenantId }: NotificationBellProps) {
     const diffHr = Math.floor(diffMin / 60);
     const diffDay = Math.floor(diffHr / 24);
 
-    if (diffSec < 60) return "À l'instant";
-    if (diffMin < 60) return `Il y a ${diffMin} min`;
-    if (diffHr < 24) return `Il y a ${diffHr} h`;
-    if (diffDay === 1) return 'Hier';
-    return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+    if (diffSec < 60) return t('notifications.time_now');
+    if (diffMin < 60) return t('notifications.time_ago_m', { count: diffMin });
+    if (diffHr < 24) return t('notifications.time_ago_h', { count: diffHr });
+    if (diffDay === 1) return t('notifications.yesterday');
+    return date.toLocaleDateString(i18n.language.startsWith('fr') ? 'fr-FR' : 'en-US', { day: 'numeric', month: 'short' });
   };
 
   // Category type icon map
@@ -371,7 +372,7 @@ export default function NotificationBell({ tenantId }: NotificationBellProps) {
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
               <h3 style={{ fontFamily: 'Space Mono', fontSize: '10px', letterSpacing: '0.12em', color: 'var(--muted)', textTransform: 'uppercase', margin: 0 }}>
-                NOTIFICATIONS
+                {t('notifications.bell_title')}
               </h3>
               
               {unreadCount > 0 && (
@@ -389,7 +390,7 @@ export default function NotificationBell({ tenantId }: NotificationBellProps) {
                     padding: '2px 6px',
                   }}
                 >
-                  TOUT LIRE
+                  {t('notifications.mark_all_read')}
                 </button>
               )}
             </div>
@@ -403,10 +404,10 @@ export default function NotificationBell({ tenantId }: NotificationBellProps) {
                     <Bell size={20} color="rgba(0, 255, 65, 0.4)" style={{ position: 'relative' }} />
                   </div>
                   <p style={{ fontSize: '11px', fontWeight: 700, color: '#FFFFFF', margin: '0 0 2px 0', letterSpacing: '0.02em' }}>
-                    Aucune notification
+                    {t('notifications.no_notifs')}
                   </p>
                   <p style={{ fontSize: '9px', color: 'var(--muted)', margin: 0, lineHeight: 1.3 }}>
-                    Vous êtes à jour ! Aucun message reçu ces 7 derniers jours.
+                    {t('notifications.empty_desc')}
                   </p>
                 </div>
               ) : (

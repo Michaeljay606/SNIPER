@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { Calculator as CalcIcon } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 export default function Calculator() {
+  const { t } = useTranslation();
   const { tenantConfig } = useOutletContext<any>();
   const isPremium = true; // TODO: Check actual plan from user profile
   
@@ -36,7 +38,7 @@ export default function Calculator() {
       <div className="glass-card p-4">
         <h1 className="text-2xl font-mono font-black uppercase italic tracking-tight mb-4 flex items-center gap-2">
           <CalcIcon className={isForex ? 'text-[var(--accent-emerald)]' : 'text-[var(--accent-amber)]'} />
-          Calculateur
+          {t('calcul.title')}
         </h1>
 
         {/* Mode Switch */}
@@ -54,7 +56,7 @@ export default function Calculator() {
             className={`flex-1 py-[10px] text-xs font-bold tracking-widest uppercase rounded-lg transition-all duration-200 z-10 min-h-[44px] ${
               !isForex ? 'text-black bg-[var(--accent-amber)] shadow-lg' : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
             } ${!isPremium ? 'opacity-50 cursor-not-allowed' : ''}`}
-            title={!isPremium ? "Mode Binaire disponible en PREMIUM" : ""}
+            title={!isPremium ? t('admin.upgrade_cta') : ""}
           >
             Binaire
           </button>
@@ -64,7 +66,7 @@ export default function Calculator() {
       {/* Form */}
       <div className="glass-card p-4 space-y-6 rounded-[12px]">
         <div>
-          <label className="block text-[10px] text-[var(--text-secondary)] font-bold uppercase tracking-widest mb-2">Solde du compte ($)</label>
+          <label className="block text-[10px] text-[var(--text-secondary)] font-bold uppercase tracking-widest mb-2">{t('calcul.balance')}</label>
           <div className="relative">
             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-muted)] font-mono">$</span>
             <input 
@@ -78,8 +80,8 @@ export default function Calculator() {
 
         <div>
           <div className="flex justify-between items-end mb-2">
-            <label className="block text-[10px] text-[var(--text-secondary)] font-bold uppercase tracking-widest">Risque %</label>
-            <span className="text-[10px] text-[var(--accent-emerald)] font-bold tracking-wider">MAX: 2% RECOMMANDÉ</span>
+            <label className="block text-[10px] text-[var(--text-secondary)] font-bold uppercase tracking-widest">{t('calcul.risk')}</label>
+            <span className="text-[10px] text-[var(--accent-emerald)] font-bold tracking-wider">{t('calcul.max_rec')}</span>
           </div>
           <div className="flex items-center gap-4 h-[44px]">
             <input 
@@ -97,7 +99,7 @@ export default function Calculator() {
 
         {isForex && (
           <div>
-            <label className="block text-[10px] text-[var(--text-secondary)] font-bold uppercase tracking-widest mb-2">Stop Loss (Pips)</label>
+            <label className="block text-[10px] text-[var(--text-secondary)] font-bold uppercase tracking-widest mb-2">{t('calcul.sl')}</label>
             <input 
               type="number" 
               value={slPips}
@@ -112,7 +114,7 @@ export default function Calculator() {
       <div className={`glass-card p-6 rounded-[12px] border ${isForex ? 'border-[var(--accent-emerald)] shadow-[0_0_20px_rgba(0,255,150,0.1)]' : 'border-[var(--accent-amber)] shadow-[0_0_20px_rgba(245,158,11,0.1)]'}`}>
         <div className="text-center mb-6">
           <p className="text-[10px] text-[var(--text-secondary)] font-bold uppercase tracking-widest mb-2">
-            {isForex ? 'Taille de lot recommandée' : 'Mise recommandée'}
+            {isForex ? t('calcul.lot') : t('live.stake')}
           </p>
           <p className={`text-4xl font-mono font-black ${isForex ? 'text-[var(--accent-emerald)]' : 'text-[var(--accent-amber)]'}`}>
             {isForex ? lotSize.toFixed(2) : `$${riskAmount.toFixed(2)}`}
@@ -122,7 +124,7 @@ export default function Calculator() {
         {isForex && (
           <div className="flex justify-between pt-4 border-t border-[var(--border-subtle)]">
             <div>
-              <p className="text-[9px] text-[var(--text-secondary)] font-bold uppercase tracking-widest mb-1">Risque Net</p>
+              <p className="text-[9px] text-[var(--text-secondary)] font-bold uppercase tracking-widest mb-1">{t('calcul.net_risk')}</p>
               <p className="font-mono text-sm text-[var(--accent-red)]">-${riskAmount.toFixed(2)}</p>
             </div>
           </div>

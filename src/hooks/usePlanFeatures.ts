@@ -1,198 +1,338 @@
-import { useMemo } from 'react'
-import type { ClientConfig } from '../context/ConfigContext'
+import { useClientConfig } from './useClientConfig'
+
+export type PlanId = 'free' | 'basic' | 'premium' | 'empire' | 'pause'
+export type VipModelOption = 'broker' | 'payment' | 'both'
 
 export interface PlanFeatures {
-  // Identity
-  planName:         'free' | 'basic' | 'premium' | 'empire' | 'pause'
-  planLabel:        string
-  planIdentity:     string
+  plan: PlanId
 
-  // Signals
-  signalDailyLimit:    number | null   // null = unlimited
-  canPublishVipSignals: boolean
+  // Display
+  planLabel: string
+  planPrice: string
 
-  // Academy
-  hasAcademy:           boolean
-  academyVideoLimit:    number | null  // null = unlimited
+  // Signal limits
+  maxSignalsPerDay: number
+  signalsUnlimited: boolean
 
-  // Members
-  maxMembers:           number | null  // null = unlimited
+  // Member limits
+  maxMembers: number
+  membersUnlimited: boolean
+
+  // Academy limits
+  maxLessons: number
+  academyUnlimited: boolean
+
+  // Profile
+  canEditFullProfile: boolean
+  canUploadMedia: boolean
+  canAddCoachingElite: boolean
+
+  // Brokers
+  maxBrokers: number
+
+  // Access models (VIP / Academy monetization)
+  allowedVipModels: readonly VipModelOption[]
+
+  // Payment
+  canUseTonConnect: boolean
+  canUseManualPayment: boolean
+  canUseBrokerModel: boolean
+
+  // Analytics
+  hasBasicAnalytics: boolean
+  hasWinrateByPair: boolean
+  hasAdvancedAnalytics: boolean
+  hasFullAnalytics: boolean
+  canExportCSV: boolean
 
   // Branding
-  showOnyxBadge:        boolean
-  canCustomizeTheme:    boolean
-  whiteLabel:           boolean
+  showSniperBadge: boolean
+  canHideBadge: boolean
+  canWhiteLabel: boolean
+  canCustomizeColors: boolean
+  canCustomizeAppName: boolean
 
-  // Features
-  canCustomizeName:     boolean
-  canUploadLogo:        boolean
-  canConfigureBrokers:  boolean
-  brokerLimit:          number
-  hasAnalytics:              boolean
-  hasAdvancedAnalytics:      boolean   // EMPIRE: analytics + CSV export
-  hasBlockchainWatcher:      boolean
-  blockchainComingSoon:      boolean   // EMPIRE: unlocked but feature not live yet
-  hasPrioritySupport:        boolean   // EMPIRE only
-  contactLinksLimit:         number
-  academyModuleLimit:        number
-  canConfigureEliteCoaching: boolean
+  // Notifications
+  hasAutoNotifications: boolean
 
-  // Admin
-  isAdminLocked:        boolean  // true for PAUSE plan
+  // Trading modes
+  canUseBinaryMode: boolean
+  canUseHybridMode: boolean
 
-  // Helpers
-  isFree:    boolean
-  isBasic:   boolean
-  isPremium: boolean
-  isEmpire:  boolean
-  isPaused:  boolean
+  // Empire exclusives
+  hasBlockchainWatcher: boolean
+  hasPrioritySupport: boolean
+  hasLeaderboard: boolean
+
+  // Pause
+  isPaused: boolean
+  isAdminLocked: boolean
+  canAcceptNewMembers: boolean
 }
 
-// ── Single source of truth for plan config ────────────────────────────────────
-export const MEMBER_WARNING_THRESHOLD = 0.80;
-
-
-export const PLAN_CONFIG = {
+export const PLAN_CONFIG: Record<PlanId, PlanFeatures> = {
   free: {
-    label:       'FREE',
-    identity:    'Découvre la plateforme',
-    price:       0,
-    signalLimit: 3          as number | null,
-    academy:     true,
-    videoLimit:  1          as number | null,
-    maxMembers:  50         as number | null,
-    onyxBadge:   true,
-    theme:       false,
-    whiteLabel:  false,
-    brokers:     1,
-    analytics:   false,
-    blockchain:  false,
-    adminLocked: false,
-    contactLinks: 1,
-    moduleLimit:  1,
-    eliteCoaching: false,
+    plan: 'free',
+    planLabel: 'FREE',
+    planPrice: '$0/mois',
+    maxSignalsPerDay: 3,
+    signalsUnlimited: false,
+    maxMembers: 50,
+    membersUnlimited: false,
+    maxLessons: 3,
+    academyUnlimited: false,
+    canEditFullProfile: false,
+    canUploadMedia: false,
+    canAddCoachingElite: false,
+    maxBrokers: 1,
+    allowedVipModels: ['broker', 'payment'],
+    canUseTonConnect: false,
+    canUseManualPayment: true,
+    canUseBrokerModel: true,
+    hasBasicAnalytics: false,
+    hasWinrateByPair: false,
+    hasAdvancedAnalytics: false,
+    hasFullAnalytics: false,
+    canExportCSV: false,
+    showSniperBadge: true,
+    canHideBadge: false,
+    canWhiteLabel: false,
+    canCustomizeColors: false,
+    canCustomizeAppName: false,
+    hasAutoNotifications: false,
+    canUseBinaryMode: false,
+    canUseHybridMode: false,
+    hasBlockchainWatcher: false,
+    hasPrioritySupport: false,
+    hasLeaderboard: false,
+    isPaused: false,
+    isAdminLocked: false,
+    canAcceptNewMembers: true,
   },
-  basic: {
-    label:       'BASIC',
-    identity:    'Lance ton activité de mentor',
-    price:       49,
-    signalLimit: null       as number | null,
-    academy:     true,
-    videoLimit:  10         as number | null,
-    maxMembers:  500        as number | null,
-    onyxBadge:   true,
-    theme:       false,
-    whiteLabel:  false,
-    brokers:     3,
-    analytics:   false,
-    blockchain:  false,
-    adminLocked: false,
-    contactLinks: 3,
-    moduleLimit:  null,
-    eliteCoaching: false,
-  },
-  premium: {
-    label:       'PREMIUM',
-    identity:    "Construis ton infrastructure",
-    price:       99,
-    signalLimit: null       as number | null,
-    academy:     true,
-    videoLimit:  null       as number | null,
-    maxMembers:  2000       as number | null,
-    onyxBadge:   false,
-    theme:       true,
-    whiteLabel:  false,
-    brokers:     5,
-    analytics:   true,
-    blockchain:  false,
-    adminLocked: false,
-    contactLinks: 5,
-    moduleLimit:  null,
-    eliteCoaching: true,
-  },
-  empire: {
-    label:            'EMPIRE',
-    identity:         'Automatise. Délègue. Domine.',
-    price:            199,
-    signalLimit:      null       as number | null,
-    academy:          true,
-    videoLimit:       null       as number | null,
-    maxMembers:       null       as number | null,
-    onyxBadge:        false,
-    theme:            true,
-    whiteLabel:       true,
-    brokers:          10,
-    analytics:        true,
-    advancedAnalytics: true,
-    blockchain:       false,      // feature not live yet
-    blockchainSoon:   true,       // unlocked for empire, but coming soon
-    adminLocked:      false,
-    contactLinks:     5,
-    moduleLimit:      null,
-    eliteCoaching:    true,
-    prioritySupport:  true,
-  },
-  pause: {
-    label:       'PAUSE',
-    identity:    'En pause temporaire',
-    price:       19,
-    signalLimit: 0          as number | null,
-    academy:     false,
-    videoLimit:  0          as number | null,
-    maxMembers:  0          as number | null,
-    onyxBadge:   true,
-    theme:       false,
-    whiteLabel:  false,
-    brokers:     0,
-    analytics:   false,
-    blockchain:  false,
-    adminLocked: true,
-    eliteCoaching: false,
-  },
-} as const
 
-// Pricing map for MRR (used in MasterControlPanel)
-export const PLAN_PRICES: Record<string, number> = {
-  free:    PLAN_CONFIG.free.price,
-  basic:   PLAN_CONFIG.basic.price,
-  premium: PLAN_CONFIG.premium.price,
-  empire:  PLAN_CONFIG.empire.price,
-  pause:   PLAN_CONFIG.pause.price,
+  basic: {
+    plan: 'basic',
+    planLabel: 'BASIC',
+    planPrice: '$49/mois',
+    maxSignalsPerDay: Infinity,
+    signalsUnlimited: true,
+    maxMembers: 500,
+    membersUnlimited: false,
+    maxLessons: 10,
+    academyUnlimited: false,
+    canEditFullProfile: true,
+    canUploadMedia: true,
+    canAddCoachingElite: false,
+    maxBrokers: 3,
+    allowedVipModels: ['broker', 'payment'],
+    canUseTonConnect: false,
+    canUseManualPayment: true,
+    canUseBrokerModel: true,
+    hasBasicAnalytics: true,
+    hasWinrateByPair: true,
+    hasAdvancedAnalytics: false,
+    hasFullAnalytics: false,
+    canExportCSV: false,
+    showSniperBadge: true,
+    canHideBadge: false,
+    canWhiteLabel: false,
+    canCustomizeColors: false,
+    canCustomizeAppName: false,
+    hasAutoNotifications: false,
+    canUseBinaryMode: false,
+    canUseHybridMode: false,
+    hasBlockchainWatcher: false,
+    hasPrioritySupport: false,
+    hasLeaderboard: false,
+    isPaused: false,
+    isAdminLocked: false,
+    canAcceptNewMembers: true,
+  },
+
+  premium: {
+    plan: 'premium',
+    planLabel: 'PREMIUM',
+    planPrice: '$99/mois',
+    maxSignalsPerDay: Infinity,
+    signalsUnlimited: true,
+    maxMembers: 2000,
+    membersUnlimited: false,
+    maxLessons: Infinity,
+    academyUnlimited: true,
+    canEditFullProfile: true,
+    canUploadMedia: true,
+    canAddCoachingElite: true,
+    maxBrokers: 3,
+    allowedVipModels: ['broker', 'payment', 'both'],
+    canUseTonConnect: true,
+    canUseManualPayment: true,
+    canUseBrokerModel: true,
+    hasBasicAnalytics: true,
+    hasWinrateByPair: true,
+    hasAdvancedAnalytics: true,
+    hasFullAnalytics: false,
+    canExportCSV: false,
+    showSniperBadge: false,
+    canHideBadge: true,
+    canWhiteLabel: false,
+    canCustomizeColors: false,
+    canCustomizeAppName: false,
+    hasAutoNotifications: true,
+    canUseBinaryMode: true,
+    canUseHybridMode: false,
+    hasBlockchainWatcher: false,
+    hasPrioritySupport: false,
+    hasLeaderboard: false,
+    isPaused: false,
+    isAdminLocked: false,
+    canAcceptNewMembers: true,
+  },
+
+  empire: {
+    plan: 'empire',
+    planLabel: 'EMPIRE',
+    planPrice: '$199/mois',
+    maxSignalsPerDay: Infinity,
+    signalsUnlimited: true,
+    maxMembers: Infinity,
+    membersUnlimited: true,
+    maxLessons: Infinity,
+    academyUnlimited: true,
+    canEditFullProfile: true,
+    canUploadMedia: true,
+    canAddCoachingElite: true,
+    maxBrokers: 3,
+    allowedVipModels: ['broker', 'payment', 'both'],
+    canUseTonConnect: true,
+    canUseManualPayment: true,
+    canUseBrokerModel: true,
+    hasBasicAnalytics: true,
+    hasWinrateByPair: true,
+    hasAdvancedAnalytics: true,
+    hasFullAnalytics: true,
+    canExportCSV: true,
+    showSniperBadge: false,
+    canHideBadge: true,
+    canWhiteLabel: true,
+    canCustomizeColors: true,
+    canCustomizeAppName: true,
+    hasAutoNotifications: true,
+    canUseBinaryMode: true,
+    canUseHybridMode: true,
+    hasBlockchainWatcher: true,
+    hasPrioritySupport: true,
+    hasLeaderboard: true,
+    isPaused: false,
+    isAdminLocked: false,
+    canAcceptNewMembers: true,
+  },
+
+  pause: {
+    plan: 'pause',
+    planLabel: 'PAUSE',
+    planPrice: '$19/mois',
+    maxSignalsPerDay: 0,
+    signalsUnlimited: false,
+    maxMembers: 0,
+    membersUnlimited: false,
+    maxLessons: 0,
+    academyUnlimited: false,
+    canEditFullProfile: false,
+    canUploadMedia: false,
+    canAddCoachingElite: false,
+    maxBrokers: 0,
+    allowedVipModels: [],
+    canUseTonConnect: false,
+    canUseManualPayment: false,
+    canUseBrokerModel: false,
+    hasBasicAnalytics: false,
+    hasWinrateByPair: false,
+    hasAdvancedAnalytics: false,
+    hasFullAnalytics: false,
+    canExportCSV: false,
+    showSniperBadge: true,
+    canHideBadge: false,
+    canWhiteLabel: false,
+    canCustomizeColors: false,
+    canCustomizeAppName: false,
+    hasAutoNotifications: false,
+    canUseBinaryMode: false,
+    canUseHybridMode: false,
+    hasBlockchainWatcher: false,
+    hasPrioritySupport: false,
+    hasLeaderboard: false,
+    isPaused: true,
+    isAdminLocked: true,
+    canAcceptNewMembers: false,
+  },
 }
 
-export function usePlanFeatures(plan: ClientConfig['plan']): PlanFeatures {
-  return useMemo(() => {
-    const cfg = PLAN_CONFIG[plan] ?? PLAN_CONFIG.free
-    return {
-      planName:             plan,
-      planLabel:            cfg.label,
-      planIdentity:         cfg.identity,
-      signalDailyLimit:     cfg.signalLimit,
-      canPublishVipSignals: cfg.signalLimit === null,
-      hasAcademy:           cfg.academy,
-      academyVideoLimit:    cfg.videoLimit,
-      maxMembers:           cfg.maxMembers,
-      showOnyxBadge:        cfg.onyxBadge,
-      canCustomizeTheme:    cfg.theme,
-      whiteLabel:           cfg.whiteLabel,
-      canCustomizeName:     true,
-      canUploadLogo:        (plan !== 'free' && plan !== 'basic'),
-      canConfigureBrokers:  cfg.brokers > 0,
-      brokerLimit:          cfg.brokers,
-      hasAnalytics:              cfg.analytics,
-      hasAdvancedAnalytics:      (cfg as any).advancedAnalytics || false,
-      hasBlockchainWatcher:      cfg.blockchain,
-      blockchainComingSoon:      (cfg as any).blockchainSoon || false,
-      hasPrioritySupport:        (cfg as any).prioritySupport || false,
-      isAdminLocked:             cfg.adminLocked,
-      contactLinksLimit:         (cfg as any).contactLinks || 5,
-      academyModuleLimit:        (cfg as any).moduleLimit || 50,
-      canConfigureEliteCoaching: (cfg as any).eliteCoaching || false,
-      isFree:    plan === 'free',
-      isBasic:   plan === 'basic',
-      isPremium: plan === 'premium',
-      isEmpire:  plan === 'empire',
-      isPaused:  plan === 'pause',
+export const FREE_PLAN_FEATURES: PlanFeatures = PLAN_CONFIG.free
+
+/** Comparison table rows — synced with product spec */
+export const PLAN_COMPARISON_ROWS = [
+  { label: 'Signaux / jour', free: '3', basic: '∞', premium: '∞', empire: '∞' },
+  { label: 'Membres max', free: '50', basic: '500', premium: '2000', empire: '∞' },
+  { label: 'Leçons Academy', free: '3', basic: '10', premium: '∞', empire: '∞' },
+  { label: 'Profil', free: 'Basique', basic: 'Complet', premium: 'Complet', empire: 'White-label' },
+  { label: 'Brokers affiliés', free: '1', basic: '3', premium: '3', empire: '3' },
+  { label: 'Modèle accès', free: 'Broker+Paiement manuel', basic: 'Broker+Paiement', premium: 'Les 3', empire: 'Les 3' },
+  { label: 'TON Connect', free: false, basic: false, premium: true, empire: true },
+  { label: 'Coaching Elite', free: false, basic: false, premium: true, empire: true },
+  { label: 'Analytics', free: false, basic: 'Winrate+TP/SL', premium: 'Avancées', empire: 'Complètes+CSV' },
+  { label: 'Badge SNIPER', free: 'Obligatoire', basic: 'Obligatoire', premium: 'Masqué', empire: 'Masqué' },
+  { label: 'Mode Binaire', free: false, basic: false, premium: true, empire: true },
+  { label: 'Hybride Forex+Binaire', free: false, basic: false, premium: false, empire: true },
+  { label: 'Blockchain Watcher', free: false, basic: false, premium: false, empire: true },
+  { label: 'Notifs auto Telegram', free: false, basic: false, premium: true, empire: true },
+  { label: 'Support prioritaire', free: false, basic: false, premium: false, empire: '24h' },
+  { label: 'Leaderboard', free: false, basic: false, premium: false, empire: 'Phase 2' },
+] as const
+
+function resolvePlanKey(raw: string | undefined | null): PlanId {
+  if (!raw) return 'free'
+  if (raw in PLAN_CONFIG) return raw as PlanId
+  return 'free'
+}
+
+export function usePlanFeatures(): PlanFeatures {
+  const { config } = useClientConfig()
+  const planKey = resolvePlanKey(config?.plan ?? 'free')
+
+  const trialEndsAt =
+    config?.trialEndsAt ??
+    (config as { trial_ends_at?: string } | null)?.trial_ends_at
+
+  if (planKey === 'empire' && trialEndsAt) {
+    try {
+      const trialEnd = new Date(trialEndsAt)
+      if (!Number.isNaN(trialEnd.getTime()) && trialEnd > new Date()) {
+        return {
+          ...PLAN_CONFIG.empire,
+          plan: planKey,
+          planLabel: `${PLAN_CONFIG[planKey].planLabel} · ESSAI`,
+        }
+      }
+    } catch {
+      // ignore invalid date
     }
-  }, [plan])
+  }
+
+  return PLAN_CONFIG[planKey] ?? PLAN_CONFIG.free
+}
+
+export function isVipModelAllowed(
+  features: PlanFeatures,
+  model: VipModelOption
+): boolean {
+  return features.allowedVipModels.includes(model)
+}
+
+/** FREE/BASIC: badge obligatoire. PREMIUM/EMPIRE: masqué par défaut, discret si hideSniperBadge === false */
+export function shouldShowSniperBadge(
+  features: PlanFeatures,
+  hideSniperBadge?: boolean | null
+): boolean {
+  if (!features.canHideBadge) return true
+  return hideSniperBadge !== true
 }

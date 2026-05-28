@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { 
   ShieldCheck, 
   LogOut, 
@@ -18,6 +19,9 @@ import { supabase } from '../../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { useConfig } from '../../context/ConfigContext';
 import EliteCoachingModal from '../modals/EliteCoachingModal';
+import LockedFeature from '../LockedFeature';
+import PlanComparisonSheet from '../PlanComparisonSheet';
+import { PLAN_CONFIG, PlanId } from '../../hooks/usePlanFeatures';
 
 interface ProfileTabProps {
   tenant_id: string;
@@ -29,6 +33,7 @@ interface ProfileTabProps {
 }
 
 export default function ProfileTab({ tenant_id, tenantProfile, config, isAdminUser, currentUser, onLogout }: ProfileTabProps) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { refresh: refreshConfig } = useConfig();
   const [localTenant, setLocalTenant] = useState<any>(tenantProfile || {});
@@ -36,6 +41,13 @@ export default function ProfileTab({ tenant_id, tenantProfile, config, isAdminUs
   const [timeline, setTimeline] = useState<any[]>([]);
   const [mentorBadges, setMentorBadges] = useState<any[]>([]);
   const [gallery, setGallery] = useState<string[]>([]);
+  
+  const [showUpgradeSheet, setShowUpgradeSheet] = useState(false);
+
+  const tenantPlanKey = (localConfig?.plan || 'free') as PlanId;
+  const tenantFeatures = PLAN_CONFIG[tenantPlanKey] || PLAN_CONFIG.free;
+  const brokerSlots = Array.from({ length: Math.max(0, tenantFeatures.maxBrokers) }, (_, index) => index + 1);
+  const canShowPublicSocials = tenantFeatures.canEditFullProfile;
   
   const [isUploading, setIsUploading] = useState<string | null>(null);
   
@@ -291,7 +303,7 @@ export default function ProfileTab({ tenant_id, tenantProfile, config, isAdminUs
     // optimistic
     setMentorBadges(mentorBadges.filter(b => b.id !== id));
     try {
-      const { error } = await supabase.from('mentor_badges').delete().eq('id', id);
+      const { error } = await supabase.from('mentor_badges').delete().eq('id', id).eq('tenant_id', tenant_id.trim());
       if (error) throw error;
     } catch (e: any) {
       console.error(e);
@@ -312,7 +324,7 @@ export default function ProfileTab({ tenant_id, tenantProfile, config, isAdminUs
     setMentorBadges(mentorBadges.map(b => b.id === badge.id ? { ...b, ...updated } : b));
     
     try {
-      const { error } = await supabase.from('mentor_badges').update(updated).eq('id', badge.id);
+      const { error } = await supabase.from('mentor_badges').update(updated).eq('id', badge.id).eq('tenant_id', tenant_id.trim());
       if (error) throw error;
     } catch (e: any) {
       console.error(e);
@@ -345,7 +357,7 @@ export default function ProfileTab({ tenant_id, tenantProfile, config, isAdminUs
     if (!confirm('Supprimer cet événement ?')) return;
     setTimeline(timeline.filter(t => t.id !== id));
     try {
-      const { error } = await supabase.from('timeline_events').delete().eq('id', id);
+      const { error } = await supabase.from('timeline_events').delete().eq('id', id).eq('tenant_id', tenant_id.trim());
       if (error) throw error;
     } catch (e: any) {
       console.error(e);
@@ -373,7 +385,8 @@ export default function ProfileTab({ tenant_id, tenantProfile, config, isAdminUs
       const { error } = await supabase
         .from('timeline_events')
         .update(updated)
-        .eq('id', editingTimelineId);
+        .eq('id', editingTimelineId)
+        .eq('tenant_id', tenant_id.trim());
       
       if (error) throw error;
       
@@ -406,7 +419,7 @@ export default function ProfileTab({ tenant_id, tenantProfile, config, isAdminUs
     if (!currentUser) return;
     const newVal = !currentUser.is_vip;
     try {
-      await supabase.from('affiliates').update({ is_vip: newVal }).eq('id', currentUser.id);
+      await supabase.from('affiliates').update({ is_vip: newVal }).eq('id', currentUser.id).eq('tenant_id', tenant_id.trim());
       window.location.reload(); 
     } catch (err: any) {
       console.error(err);
@@ -419,14 +432,6 @@ export default function ProfileTab({ tenant_id, tenantProfile, config, isAdminUs
       <div className="s-line" style={{ width: '3px', height: '13px', borderRadius: '2px', background: 'var(--green)', boxShadow: '0 0 8px rgba(0,255,65,0.4)', flexShrink: 0, ...lineStyle }} />
       <span className="s-title" style={{ fontFamily: 'Space Mono', fontSize: '9px', letterSpacing: '0.18em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>{title}</span>
       {actionNode}
-    </div>
-  );
-
-  const PoweredBy = () => (
-    <div style={{ padding: '24px 0 12px', display: 'flex', justifyContent: 'center', opacity: 0.2 }}>
-      <span style={{ fontFamily: 'Space Mono', fontSize: '7px', fontWeight: 800, letterSpacing: '0.25em', color: 'var(--muted)' }}>
-        POWERED BY SNIPER
-      </span>
     </div>
   );
 
@@ -657,804 +662,882 @@ export default function ProfileTab({ tenant_id, tenantProfile, config, isAdminUs
       </div>
 
       {/* BLOCK 3 - MA VISION */}
-      {renderSectionHeader(
-        "MA VISION", 
-        isAdminUser && <Pencil size={14} color="var(--green)" onClick={() => setIsEditingVision(!isEditingVision)} style={{ marginLeft: 'auto', cursor: 'pointer' }} />
-      )}
-      <div style={{ margin: '0 14px', background: 'var(--glass)', border: '1px solid var(--subtle)', borderRadius: '14px', padding: '18px' }}>
-        <div style={{ display: 'flex', gap: '4px', marginBottom: '16px' }}>
-          <span style={{ color: 'var(--green)', fontSize: '28px', fontWeight: 700, fontStyle: 'normal', lineHeight: 1 }}>"</span>
-          <div style={{ flex: 1 }}>
-            {isEditingVision ? (
-              <textarea 
-                style={{ 
-                  width: '100%', height: 'auto', minHeight: '80px', background: 'transparent', 
-                  border: '1px solid rgba(0,255,65,0.2)', borderRadius: '8px', padding: '8px',
-                  fontSize: '14px', fontStyle: 'italic', color: 'rgba(255,255,255,0.75)', lineHeight: 1.8, outline: 'none'
-                }}
-                value={visionText}
-                onChange={(e) => setVisionText(e.target.value)}
-                onBlur={() => {
-                  setIsEditingVision(false);
-                  handleUpdateTenant('vision_text', visionText);
-                }}
-                autoFocus
+      {!tenantFeatures.canEditFullProfile ? (
+        isAdminUser ? (
+          <>
+            {renderSectionHeader("MA VISION")}
+            <div style={{ margin: '0 14px' }}>
+              <LockedFeature
+                currentPlan={tenantPlanKey}
+                requiredPlan="basic"
+                featureName="Ma Vision"
+                description="Partagez votre philosophie de trading et votre vision de l'accompagnement."
+                mode="replace"
+                onUpgrade={() => setShowUpgradeSheet(true)}
               />
-            ) : (
-              <div style={{ fontSize: '14px', fontStyle: 'italic', color: 'rgba(255,255,255,0.75)', lineHeight: 1.8 }}>
-                {localTenant?.vision_text || "Ma vision du trading et de l'accompagnement..."}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* CADRE PHOTO VISION */}
-        {(localTenant?.vision_photo_url || isAdminUser) && (
-        <div style={{ position: 'relative', width: '100%', paddingTop: '65%', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.05)' }}>
-          {localTenant?.vision_photo_url ? (
-            <img 
-              src={localTenant.vision_photo_url} 
-              loading="lazy"
-              onLoad={(e) => (e.target as HTMLImageElement).classList.add('img-loaded')}
-              className="img-fade"
-              style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 20%' }} 
-              alt="Vision" 
-            />
-          ) : (
-            <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              <ImagePlus size={32} color="rgba(255,255,255,0.1)" />
-              <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.2)', fontWeight: 700, letterSpacing: '0.1em' }}>CADRE PHOTO VISION</span>
             </div>
-          )}
-          
-          {isAdminUser && (
-            <label style={{ position: 'absolute', bottom: '12px', right: '12px', background: 'var(--green)', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 4px 20px rgba(0,255,65,0.3)', zIndex: 10 }}>
-              <Camera size={18} color="#050507" />
-              <input type="file" style={{ display: 'none' }} accept="image/*" onChange={(e) => handleImageUpload(e, 'vision')} />
-            </label>
-          )}
-        </div>
-        )}
-      </div>
-      <PoweredBy />
-
-      {/* BLOCK 4 - GALERIE DE RÉSULTATS */}
-      {renderSectionHeader("GALERIE DE RÉSULTATS")}
-      <div style={{ padding: '0 14px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
-          {[0, 1, 2, 3].map(idx => (
-            <div key={idx} style={{ 
-              position: 'relative', 
-              width: '100%', 
-              paddingTop: '125%', // Portrait 4:5 aspect ratio
-              background: 'var(--glass)', 
-              border: '1px solid var(--subtle)', 
-              borderRadius: '12px', 
-              overflow: 'hidden' 
-            }}>
-              {gallery[idx] ? (
-                <>
-                  <img 
-                    src={gallery[idx]} 
-                    loading="lazy"
-                    onLoad={(e) => (e.target as HTMLImageElement).classList.add('img-loaded')}
-                    className="img-fade"
-                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 20%' }} 
-                    alt={`Result ${idx}`} 
-                  />
-                  {isAdminUser && (
-                    <button 
-                      onClick={() => handleDeleteGalleryImg(gallery[idx])}
-                      style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(255,59,48,0.8)', border: 'none', borderRadius: '50%', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white', zIndex: 10 }}
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  )}
-                </>
-              ) : isAdminUser ? (
-                <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                  <ImagePlus size={20} color="rgba(255,255,255,0.1)" />
-                  <span style={{ fontSize: '8px', color: 'rgba(255,255,255,0.2)', fontWeight: 700 }}>SLOT {idx + 1}</span>
-                </div>
-              ) : (
-                <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'var(--elevated)' }} />
-              )}
-              
-              {isAdminUser && (
-                <label style={{ position: 'absolute', bottom: '8px', right: '8px', background: 'rgba(0,0,0,0.5)', width: '28px', height: '28px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.1)' }}>
-                  <Camera size={14} color="white" />
-                  <input type="file" style={{ display: 'none' }} accept="image/*" onChange={(e) => handleImageUpload(e, `gallery_${idx}`)} />
-                </label>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-      <PoweredBy />
-
-      {/* BLOCK 5 - PARCOURS & TIMELINE */}
-      {renderSectionHeader(
-        "PARCOURS & TIMELINE",
-        isAdminUser && (
-          <button 
-            onClick={() => {
-              setEditingTimelineId(null);
-              setNewTimeline({ year: '', description: '' });
-              setShowTimelineForm(!showTimelineForm);
-            }}
-            style={{
-              background: 'rgba(0,255,65,0.06)', border: '1px solid rgba(0,255,65,0.15)',
-              borderRadius: '20px', padding: '5px 12px', fontFamily: 'Space Mono', fontSize: '9px',
-              color: 'var(--green)', cursor: 'pointer', marginLeft: 'auto'
-            }}
-          >
-            {showTimelineForm ? 'ANNULER' : '+ AJOUTER'}
-          </button>
-        )
-      )}
-      
-      {showTimelineForm && (
-        <div style={{ margin: '0 14px 16px', background: 'var(--glass)', padding: '12px', borderRadius: '10px', border: '1px solid var(--subtle)' }}>
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-            <input 
-              style={{ width: '60px', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--subtle)', borderRadius: '6px', padding: '6px', color: '#FFF', fontSize: '12px' }}
-              placeholder="2024" maxLength={4}
-              value={newTimeline.year} onChange={e => setNewTimeline({...newTimeline, year: e.target.value})}
-            />
-            <input 
-              style={{ flex: 1, background: 'rgba(0,0,0,0.4)', border: '1px solid var(--subtle)', borderRadius: '6px', padding: '6px', color: '#FFF', fontSize: '12px' }}
-              placeholder="Lancement du canal VIP"
-              value={newTimeline.description} onChange={e => setNewTimeline({...newTimeline, description: e.target.value})}
-            />
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-            <button onClick={() => {
-              setShowTimelineForm(false);
-              setEditingTimelineId(null);
-              setNewTimeline({ year: '', description: '' });
-            }} style={{ background: 'transparent', border: 'none', color: 'var(--muted)', fontSize: '10px', cursor: 'pointer' }}>Annuler</button>
-            <button 
-              onClick={editingTimelineId ? handleUpdateTimeline : handleAddTimeline} 
-              style={{ background: 'var(--green)', color: '#000', border: 'none', borderRadius: '6px', padding: '4px 12px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}
-            >
-              {editingTimelineId ? 'Mettre à jour' : 'Ajouter'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div style={{ padding: '0 14px', display: 'flex', flexDirection: 'column' }}>
-        {timeline.length === 0 ? (
-          <div style={{ background: 'var(--glass)', border: '1px dashed rgba(255,255,255,0.06)', borderRadius: '10px', padding: '20px', textAlign: 'center', fontSize: '12px', color: 'rgba(255,255,255,0.2)', fontStyle: 'italic' }}>
-            Aucun événement dans la chronologie
-            {isAdminUser && <div style={{ marginTop: '4px' }}>Cliquez sur + AJOUTER pour commencer</div>}
-          </div>
-        ) : (
-          timeline.map((item, idx) => (
-            <div key={item.id} style={{ display: 'flex', gap: '16px', paddingBottom: '20px', position: 'relative' }}>
-              <div style={{ minWidth: '44px', position: 'relative' }}>
-                <div style={{ fontFamily: 'Space Mono', fontSize: '12px', fontWeight: 700, color: 'var(--green)', lineHeight: 1.4, textAlign: 'right' }}>
-                  {item.year}
-                </div>
-                <div style={{ position: 'absolute', right: '-12px', top: '3px', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--green)', boxShadow: '0 0 6px rgba(0,255,65,0.4)' }} />
-              </div>
-              
-              {idx !== timeline.length - 1 && (
-                <div style={{ position: 'absolute', left: 'calc(44px + 8px)', top: '12px', width: '1px', height: 'calc(100% - 4px)', background: 'rgba(0,255,65,0.12)' }} />
-              )}
-              
-              <div style={{ flex: 1, fontSize: '13px', color: 'rgba(255,255,255,0.7)', lineHeight: 1.5, paddingTop: '1px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <span>{item.description}</span>
-                {isAdminUser && (
-                  <div style={{ display: 'flex', gap: '10px', marginLeft: '10px' }}>
-                    <Pencil 
-                      size={14} 
-                      color="var(--green)" 
-                      style={{ cursor: 'pointer', opacity: 0.6 }}
-                      onClick={() => handleEditTimeline(item)}
-                    />
-                    <Trash2 
-                      size={14} 
-                      color="#FF3B30" 
-                      style={{ cursor: 'pointer', opacity: 0.6 }}
-                      onClick={() => handleDeleteTimeline(item.id)}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-      <PoweredBy />
-
-      {/* BLOCK 6 - ACCOMPAGNEMENT EXCLUSIF */}
-      {(localConfig?.elite_title || isAdminUser) && (
+          </>
+        ) : null
+      ) : (
         <>
           {renderSectionHeader(
-            "ACCOMPAGNEMENT EXCLUSIF",
-            isAdminUser && (
-              <Pencil 
-                size={14} 
-                color="var(--amber)" 
-                onClick={() => setShowEliteForm(!showEliteForm)} 
-                style={{ 
-                  marginLeft: 'auto', 
-                  cursor: 'pointer', 
-                  transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)', 
-                  transform: showEliteForm ? 'rotate(90deg)' : 'none',
-                  opacity: 0.8
-                }} 
-              />
-            ),
-            { background: 'var(--amber)', boxShadow: '0 0 8px rgba(255,214,10,0.4)' }
+            "MA VISION", 
+            isAdminUser && <Pencil size={14} color="var(--green)" onClick={() => setIsEditingVision(!isEditingVision)} style={{ marginLeft: 'auto', cursor: 'pointer' }} />
           )}
-          
-          {isAdminUser && showEliteForm ? (
-            <div style={{ 
-              margin: '0 14px 40px', 
-              background: 'var(--glass)', 
-              border: '1px solid rgba(255, 214, 10, 0.25)', 
-              padding: '20px', 
-              borderRadius: '14px', 
-              display: 'flex', 
-              flexDirection: 'column', 
-              gap: '16px', 
-              position: 'relative', 
-              overflow: 'hidden', 
-              boxShadow: '0 8px 32px 0 rgba(255, 214, 10, 0.05)',
-              backdropFilter: 'blur(12px)',
-              WebkitBackdropFilter: 'blur(12px)'
-            }}>
-              {/* Gold cyberpunk status stripe */}
-              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '3px', background: 'linear-gradient(90deg, transparent, var(--amber), transparent)' }} />
-              
-              {/* Header inside admin console */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                <Settings size={15} color="var(--amber)" style={{ animation: 'spin 4s linear infinite' }} />
-                <span style={{ fontFamily: 'Space Mono', fontSize: '10px', fontWeight: 800, color: 'var(--amber)', letterSpacing: '0.1em' }}>
-                  ÉDITEUR ACCOMPAGNEMENT ÉLITE
-                </span>
-                <span style={{ 
-                  marginLeft: 'auto', 
-                  fontSize: '8px', 
-                  background: 'rgba(255, 214, 10, 0.08)', 
-                  border: '1px solid rgba(255, 214, 10, 0.2)', 
-                  padding: '2px 6px', 
-                  borderRadius: '4px', 
-                  color: 'var(--amber)', 
-                  fontFamily: 'Space Mono', 
-                  fontWeight: 700 
-                }}>
-                  CONSOLE SÉCURISÉE
-                </span>
-              </div>
-
-              {/* Title Input Group */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                <label style={{ fontSize: '9px', fontFamily: 'Space Mono', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em', fontWeight: 600 }}>
-                  TITRE DE L'OFFRE COACHING
-                </label>
-                <input 
-                  style={{
-                    background: 'rgba(0, 0, 0, 0.35)',
-                    border: '1px solid rgba(255, 255, 255, 0.08)',
-                    borderRadius: '8px',
-                    padding: '10px 12px',
-                    color: '#FFF',
-                    fontSize: '13px',
-                    outline: 'none',
-                    fontFamily: 'inherit',
-                    transition: 'border-color 0.2s',
-                    boxSizing: 'border-box',
-                    width: '100%'
-                  }}
-                  value={localTenant.elite_title || ''}
-                  placeholder="COACHING PRIVÉ ÉLITE"
-                  onChange={(e) => setLocalTenant({...localTenant, elite_title: e.target.value})}
-                  onBlur={() => handleUpdateTenant('elite_title', localTenant.elite_title)}
-                  onFocus={(e) => e.target.style.borderColor = 'rgba(255, 214, 10, 0.4)'}
-                />
-              </div>
-
-              {/* Description Textarea Group */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                <label style={{ fontSize: '9px', fontFamily: 'Space Mono', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em', fontWeight: 600 }}>
-                  DESCRIPTION DU PROGRAMME
-                </label>
-                <textarea 
-                  style={{
-                    background: 'rgba(0, 0, 0, 0.35)',
-                    border: '1px solid rgba(255, 255, 255, 0.08)',
-                    borderRadius: '8px',
-                    padding: '10px 12px',
-                    color: '#E0E0E0',
-                    fontSize: '12px',
-                    lineHeight: 1.6,
-                    minHeight: '80px',
-                    outline: 'none',
-                    resize: 'vertical',
-                    fontFamily: 'inherit',
-                    boxSizing: 'border-box',
-                    width: '100%'
-                  }}
-                  value={localTenant.elite_description || ''}
-                  placeholder="Décrivez l'accompagnement privé, la fréquence des séances, etc..."
-                  onChange={(e) => setLocalTenant({...localTenant, elite_description: e.target.value})}
-                  onBlur={() => handleUpdateTenant('elite_description', localTenant.elite_description)}
-                  onFocus={(e) => e.target.style.borderColor = 'rgba(255, 214, 10, 0.4)'}
-                />
-              </div>
-
-              {/* Price Group */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <label style={{ 
-                  fontSize: '9px', 
-                  fontFamily: 'Space Mono', 
-                  color: 'rgba(255,214,10,0.5)', 
-                  letterSpacing: '0.12em', 
-                  fontWeight: 700,
-                  textTransform: 'uppercase'
-                }}>
-                  — PRIX D'ACCÈS
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <input 
-                    style={{
-                      background: 'rgba(255, 214, 10, 0.04)',
-                      border: '1px solid rgba(255, 214, 10, 0.2)',
-                      borderRadius: '10px',
-                      padding: '12px 16px',
-                      color: 'var(--amber)',
-                      fontFamily: 'Space Mono',
-                      fontSize: '16px',
-                      fontWeight: 800,
-                      outline: 'none',
-                      boxSizing: 'border-box',
-                      width: '100%',
-                      letterSpacing: '0.05em',
-                      transition: 'border-color 0.2s, box-shadow 0.2s',
-                    }}
-                    value={localTenant.elite_price || ''}
-                    placeholder="ex: 500€/mois"
-                    onChange={(e) => setLocalTenant({...localTenant, elite_price: e.target.value})}
-                    onBlur={(e) => {
-                      e.currentTarget.style.borderColor = 'rgba(255, 214, 10, 0.2)';
-                      e.currentTarget.style.boxShadow = 'none';
-                      handleUpdateTenant('elite_price', localTenant.elite_price);
-                    }}
-                    onFocus={(e) => {
-                      e.currentTarget.style.borderColor = 'rgba(255, 214, 10, 0.55)';
-                      e.currentTarget.style.boxShadow = '0 0 18px rgba(255, 214, 10, 0.12)';
-                    }}
-                  />
-                </div>
-                <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.25)', fontFamily: 'Space Mono', letterSpacing: '0.05em' }}>
-                  Laissez vide pour ne pas afficher de prix
-                </span>
-              </div>
-
-              {/* Benefits Checklist Group */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '9px', fontFamily: 'Space Mono', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em', fontWeight: 600, marginBottom: '2px' }}>
-                  ✏️ BÉNÉFICES CLÉS INCLUS (Max 6)
-                </label>
-                {(() => {
-                  const benefits: string[] = (() => {
-                    try {
-                      const raw = localTenant.elite_benefits;
-                      if (Array.isArray(raw)) return raw;
-                      if (typeof raw === 'string') return JSON.parse(raw);
-                      return ["Accès prioritaire direct au mentor", "Suivi personnalisé et plan d'action", "Analyse de vos trades et corrections", "Accélération vers la rentabilité"];
-                    } catch { return ["Accès prioritaire direct au mentor", "Suivi personnalisé et plan d'action", "Analyse de vos trades et corrections", "Accélération vers la rentabilité"]; }
-                  })();
-                  return (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {benefits.map((b, i) => (
-                        <div key={i} style={{ 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          gap: '8px', 
-                          background: 'rgba(255,255,255,0.02)', 
-                          border: '1px solid rgba(255,255,255,0.06)', 
-                          borderRadius: '8px', 
-                          padding: '6px 10px',
-                          transition: 'border-color 0.2s'
-                        }}>
-                          <div style={{ 
-                            width: '16px', 
-                            height: '16px', 
-                            borderRadius: '50%', 
-                            background: 'rgba(255, 214, 10, 0.1)', 
-                            border: '1px solid rgba(255, 214, 10, 0.3)', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            justifyContent: 'center', 
-                            flexShrink: 0 
-                          }}>
-                            <span style={{ color: 'var(--amber)', fontSize: '10px', fontWeight: 'bold' }}>✓</span>
-                          </div>
-                          <input 
-                            style={{ 
-                              flex: 1, 
-                              background: 'transparent', 
-                              border: 'none', 
-                              color: '#F0F0F0', 
-                              fontSize: '12px', 
-                              outline: 'none',
-                              fontFamily: 'inherit'
-                            }}
-                            value={b}
-                            placeholder="Nouveau bénéfice..."
-                            onChange={e => {
-                              const next = [...benefits];
-                              next[i] = e.target.value;
-                              setLocalTenant({ ...localTenant, elite_benefits: next });
-                            }}
-                            onBlur={() => handleUpdateTenant('elite_benefits', localTenant.elite_benefits)}
-                          />
-                          <button 
-                            onClick={() => {
-                              const next = benefits.filter((_, idx) => idx !== i);
-                              setLocalTenant({ ...localTenant, elite_benefits: next });
-                              handleUpdateTenant('elite_benefits', next);
-                            }}
-                            style={{ 
-                              background: 'rgba(255, 59, 48, 0.08)', 
-                              border: '1px solid rgba(255, 59, 48, 0.2)', 
-                              borderRadius: '6px', 
-                              width: '26px', 
-                              height: '26px', 
-                              display: 'flex', 
-                              alignItems: 'center', 
-                              justifyContent: 'center', 
-                              color: '#FF3B30', 
-                              cursor: 'pointer', 
-                              transition: 'all 0.2s', 
-                              flexShrink: 0 
-                            }}
-                            onMouseEnter={e => {
-                              e.currentTarget.style.background = 'rgba(255, 59, 48, 0.2)';
-                              e.currentTarget.style.color = '#FF453A';
-                            }}
-                            onMouseLeave={e => {
-                              e.currentTarget.style.background = 'rgba(255, 59, 48, 0.08)';
-                              e.currentTarget.style.color = '#FF3B30';
-                            }}
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        </div>
-                      ))}
-                      {benefits.length < 6 && (
-                        <button 
-                          onClick={() => {
-                            const next = [...benefits, 'Nouveau bénéfice...'];
-                            setLocalTenant({ ...localTenant, elite_benefits: next });
-                            handleUpdateTenant('elite_benefits', next);
-                          }}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '6px',
-                            background: 'rgba(0, 255, 65, 0.04)',
-                            border: '1px dashed rgba(0, 255, 65, 0.25)',
-                            borderRadius: '8px',
-                            padding: '9px',
-                            color: 'var(--green)',
-                            fontFamily: 'Space Mono',
-                            fontSize: '10px',
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                            transition: 'all 0.2s'
-                          }}
-                          onMouseEnter={e => {
-                            e.currentTarget.style.background = 'rgba(0, 255, 65, 0.08)';
-                            e.currentTarget.style.borderColor = 'rgba(0, 255, 65, 0.4)';
-                          }}
-                          onMouseLeave={e => {
-                            e.currentTarget.style.background = 'rgba(0, 255, 65, 0.04)';
-                            e.currentTarget.style.borderColor = 'rgba(0, 255, 65, 0.25)';
-                          }}
-                        >
-                          <Plus size={11} />
-                          AJOUTER UN BÉNÉFICE
-                        </button>
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* Contact Link Group */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', marginBottom: '4px' }}>
-                <label style={{ fontSize: '9px', fontFamily: 'Space Mono', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em', fontWeight: 600 }}>
-                  🔗 LIEN DE CONTACT TELEGRAM / WHATSAPP
-                </label>
-                <div style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  background: 'rgba(0,0,0,0.3)', 
-                  border: '1px solid rgba(255, 255, 255, 0.08)', 
-                  borderRadius: '8px', 
-                  overflow: 'hidden' 
-                }}>
-                  <span style={{ 
-                    padding: '0 12px', 
-                    fontSize: '10px', 
-                    fontFamily: 'Space Mono', 
-                    color: 'rgba(255,255,255,0.3)', 
-                    borderRight: '1px solid rgba(255,255,255,0.08)', 
-                    height: '38px', 
-                    display: 'flex', 
-                    alignItems: 'center',
-                    background: 'rgba(255,255,255,0.01)'
-                  }}>
-                    Lien direct wa.me / t.me
-                  </span>
-                  <input 
+          <div style={{ margin: '0 14px', background: 'var(--glass)', border: '1px solid var(--subtle)', borderRadius: '14px', padding: '18px' }}>
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '16px' }}>
+              <span style={{ color: 'var(--green)', fontSize: '28px', fontWeight: 700, fontStyle: 'normal', lineHeight: 1 }}>"</span>
+              <div style={{ flex: 1 }}>
+                {isEditingVision ? (
+                  <textarea 
                     style={{ 
-                      flex: 1, 
-                      background: 'transparent', 
-                      border: 'none', 
-                      padding: '10px 12px', 
-                      color: '#FFF', 
-                      fontSize: '12px', 
-                      outline: 'none',
-                      fontFamily: 'inherit'
+                      width: '100%', height: 'auto', minHeight: '80px', background: 'transparent', 
+                      border: '1px solid rgba(0,255,65,0.2)', borderRadius: '8px', padding: '8px',
+                      fontSize: '14px', fontStyle: 'italic', color: 'rgba(255,255,255,0.75)', lineHeight: 1.8, outline: 'none'
                     }}
-                    value={localTenant.elite_contact_url || ''}
-                    placeholder="@nom_d_utilisateur ou https://t.me/..."
-                    onChange={e => setLocalTenant({ ...localTenant, elite_contact_url: e.target.value })}
-                    onBlur={() => handleUpdateTenant('elite_contact_url', localTenant.elite_contact_url)}
-                  />
-                </div>
-              </div>
-
-              {/* Control Action Buttons */}
-              <button 
-                onClick={() => setShowEliteForm(false)}
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  borderRadius: '8px',
-                  background: 'linear-gradient(135deg, rgba(255,214,10,0.15), rgba(255,180,0,0.08))',
-                  border: '1px solid rgba(255, 214, 10, 0.25)',
-                  color: 'var(--amber)',
-                  fontFamily: 'Space Mono',
-                  fontSize: '10px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  textAlign: 'center',
-                  marginTop: '8px'
-                }}
-                onMouseEnter={e => {
-                  e.currentTarget.style.background = 'rgba(255, 214, 10, 0.2)';
-                  e.currentTarget.style.boxShadow = '0 0 15px rgba(255, 214, 10, 0.15)';
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.background = 'rgba(255, 214, 10, 0.15)';
-                  e.currentTarget.style.boxShadow = 'none';
-                }}
-              >
-                FERMER L'ÉDITEUR & ACCÉDER AU RENDU PREMIUM
-              </button>
-            </div>
-          ) : (
-            <div style={{ 
-              margin: '0 14px 40px', 
-              background: 'var(--glass)', 
-              border: '1px solid var(--subtle)', 
-              borderRadius: '14px', 
-              overflow: 'hidden', 
-              position: 'relative',
-              boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.2)'
-            }}>
-              
-              {/* Dynamic Pencil edit tab trigger only for admin user */}
-              {isAdminUser && (
-                <div 
-                  onClick={() => setShowEliteForm(true)}
-                  style={{
-                    position: 'absolute',
-                    top: '12px',
-                    left: '12px',
-                    background: 'rgba(255,214,10,0.12)',
-                    border: '1px solid rgba(255,214,10,0.25)',
-                    borderRadius: '20px',
-                    padding: '4px 10px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    color: 'var(--amber)',
-                    fontFamily: 'Space Mono',
-                    fontSize: '9px',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    zIndex: 9,
-                    backdropFilter: 'blur(8px)',
-                    WebkitBackdropFilter: 'blur(8px)',
-                    transition: 'all 0.2s',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.background = 'rgba(255,214,10,0.22)';
-                    e.currentTarget.style.transform = 'scale(1.03)';
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.background = 'rgba(255,214,10,0.12)';
-                    e.currentTarget.style.transform = 'scale(1)';
-                  }}
-                >
-                  <Pencil size={10} />
-                  CONFIGURER L'ACCOMPAGNEMENT
-                </div>
-              )}
-
-              {/* Cover Banner */}
-              <div style={{ position: 'relative', width: '100%', paddingTop: '56.25%', background: 'rgba(255,255,255,0.02)' }}>
-                {localTenant?.elite_cover_url ? (
-                  <img 
-                    src={localTenant.elite_cover_url} 
-                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }} 
-                    alt="Elite Coaching" 
+                    value={visionText}
+                    onChange={(e) => setVisionText(e.target.value)}
+                    onBlur={() => {
+                      setIsEditingVision(false);
+                      handleUpdateTenant('vision_text', visionText);
+                    }}
+                    autoFocus
                   />
                 ) : (
-                  <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                    <ImagePlus size={32} color="rgba(255,255,255,0.1)" />
-                    <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.2)', fontWeight: 700, letterSpacing: '0.1em' }}>CADRE COUVERTURE COACHING</span>
+                  <div style={{ fontSize: '14px', fontStyle: 'italic', color: 'rgba(255,255,255,0.75)', lineHeight: 1.8 }}>
+                    {localTenant?.vision_text || "Ma vision du trading et de l'accompagnement..."}
                   </div>
-                )}
-                
-                {isAdminUser && (
-                  <label style={{ 
-                    position: 'absolute', 
-                    bottom: '12px', 
-                    right: '12px', 
-                    background: 'var(--green)', 
-                    width: '36px', 
-                    height: '36px', 
-                    borderRadius: '50%', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center', 
-                    cursor: 'pointer', 
-                    boxShadow: '0 4px 20px rgba(0,255,65,0.35)', 
-                    zIndex: 10,
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.08)'}
-                  onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
-                  >
-                    <Camera size={17} color="#050507" />
-                    <input type="file" style={{ display: 'none' }} accept="image/*" onChange={(e) => handleImageUpload(e, 'elite_cover')} />
-                  </label>
                 )}
               </div>
+            </div>
 
-              {/* Public/Teaser Card Details */}
-              <div style={{ padding: '16px' }}>
-                <div style={{ 
-                  background: 'rgba(255,214,10,0.08)', 
-                  border: '1px solid rgba(255,214,10,0.18)', 
-                  borderRadius: '4px', 
-                  padding: '3px 10px', 
-                  fontFamily: 'Space Mono', 
-                  fontSize: '8px', 
-                  letterSpacing: '0.15em', 
-                  color: 'var(--amber)', 
-                  display: 'inline-block', 
-                  marginBottom: '6px',
-                  fontWeight: 700
+            {/* CADRE PHOTO VISION */}
+            {(localTenant?.vision_photo_url || isAdminUser) && (
+            <div style={{ position: 'relative', width: '100%', paddingTop: '65%', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.05)' }}>
+              {localTenant?.vision_photo_url ? (
+                <img 
+                  src={localTenant.vision_photo_url} 
+                  loading="lazy"
+                  onLoad={(e) => (e.target as HTMLImageElement).classList.add('img-loaded')}
+                  className="img-fade"
+                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 20%' }} 
+                  alt="Vision" 
+                />
+              ) : (
+                <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                  <ImagePlus size={32} color="rgba(255,255,255,0.1)" />
+                  <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.2)', fontWeight: 700, letterSpacing: '0.1em' }}>CADRE PHOTO VISION</span>
+                </div>
+              )}
+              
+              {isAdminUser && (
+                <label style={{ position: 'absolute', bottom: '12px', right: '12px', background: 'var(--green)', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 4px 20px rgba(0,255,65,0.3)', zIndex: 10 }}>
+                  <Camera size={18} color="#050507" />
+                  <input type="file" style={{ display: 'none' }} accept="image/*" onChange={(e) => handleImageUpload(e, 'vision')} />
+                </label>
+              )}
+            </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* BLOCK 4 - GALERIE DE RÉSULTATS */}
+      {!tenantFeatures.canEditFullProfile ? (
+        isAdminUser ? (
+          <>
+            {renderSectionHeader("GALERIE DE RÉSULTATS")}
+            <div style={{ padding: '0 14px' }}>
+              <LockedFeature
+                currentPlan={tenantPlanKey}
+                requiredPlan="basic"
+                featureName="Galerie de Résultats"
+                description="Affichez vos plus beaux trades et vos trackrecords pour prouver votre expertise."
+                mode="replace"
+                onUpgrade={() => setShowUpgradeSheet(true)}
+              />
+            </div>
+          </>
+        ) : null
+      ) : (
+        <>
+          {renderSectionHeader("GALERIE DE RÉSULTATS")}
+          <div style={{ padding: '0 14px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+              {[0, 1, 2, 3].map(idx => (
+                <div key={idx} style={{ 
+                  position: 'relative', 
+                  width: '100%', 
+                  paddingTop: '125%', // Portrait 4:5 aspect ratio
+                  background: 'var(--glass)', 
+                  border: '1px solid var(--subtle)', 
+                  borderRadius: '12px', 
+                  overflow: 'hidden' 
                 }}>
-                  ACCOMPAGNEMENT EXCLUSIF
+                  {gallery[idx] ? (
+                    <>
+                      <img 
+                        src={gallery[idx]} 
+                        loading="lazy"
+                        onLoad={(e) => (e.target as HTMLImageElement).classList.add('img-loaded')}
+                        className="img-fade"
+                        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 20%' }} 
+                        alt={`Result ${idx}`} 
+                      />
+                      {isAdminUser && (
+                        <button 
+                          onClick={() => handleDeleteGalleryImg(gallery[idx])}
+                          style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(255,59,48,0.8)', border: 'none', borderRadius: '50%', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white', zIndex: 10 }}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+                    </>
+                  ) : isAdminUser ? (
+                    <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                      <ImagePlus size={20} color="rgba(255,255,255,0.1)" />
+                      <span style={{ fontSize: '8px', color: 'rgba(255,255,255,0.2)', fontWeight: 700 }}>SLOT {idx + 1}</span>
+                    </div>
+                  ) : (
+                    <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'var(--elevated)' }} />
+                  )}
+                  
+                  {isAdminUser && (
+                    <label style={{ position: 'absolute', bottom: '8px', right: '8px', background: 'rgba(0,0,0,0.5)', width: '28px', height: '28px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                      <Camera size={14} color="white" />
+                      <input type="file" style={{ display: 'none' }} accept="image/*" onChange={(e) => handleImageUpload(e, `gallery_${idx}`)} />
+                    </label>
+                  )}
                 </div>
-                <div style={{ fontSize: '11px', fontStyle: 'italic', color: 'rgba(255,255,255,0.4)', marginBottom: '8px' }}>
-                  One to One
-                </div>
-                
-                <div style={{ fontSize: '18px', fontWeight: 800, color: '#F0F0F0', lineHeight: 1.3 }}>
-                  {localTenant.elite_title || 'COACHING PRIVÉ ÉLITE'}
-                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
-                <div style={{ fontSize: '12px', color: 'var(--muted)', lineHeight: 1.7, margin: '10px 0', minHeight: '40px' }}>
-                  {localTenant.elite_description || 'Bénéficiez d\'une immersion complète et d\'un encadrement direct de haut niveau pour accélérer votre transition vers la rentabilité.'}
-                </div>
-
-                {localTenant.elite_price && (
-                  <div style={{ 
-                    display: 'inline-flex', 
-                    alignItems: 'center', 
-                    background: 'rgba(255,214,10,0.06)', 
-                    border: '1px solid rgba(255,214,10,0.18)', 
-                    borderRadius: '8px', 
-                    padding: '8px 16px', 
-                    marginBottom: '16px', 
-                    fontFamily: 'Space Mono', 
-                    fontSize: '18px', 
-                    fontWeight: 800, 
-                    color: 'var(--amber)' 
-                  }}>
-                    {localTenant.elite_price}
-                  </div>
-                )}
-
+      {/* BLOCK 5 - PARCOURS & TIMELINE */}
+      {!tenantFeatures.canEditFullProfile ? (
+        isAdminUser ? (
+          <>
+            {renderSectionHeader("PARCOURS & TIMELINE")}
+            <div style={{ padding: '0 14px' }}>
+              <LockedFeature
+                currentPlan={tenantPlanKey}
+                requiredPlan="basic"
+                featureName="Parcours & Timeline"
+                description="Retracez votre historique de trader et les grandes étapes de votre club."
+                mode="replace"
+                onUpgrade={() => setShowUpgradeSheet(true)}
+              />
+            </div>
+          </>
+        ) : null
+      ) : (
+        <>
+          {renderSectionHeader(
+            "PARCOURS & TIMELINE",
+            isAdminUser && (
+              <button 
+                onClick={() => {
+                  setEditingTimelineId(null);
+                  setNewTimeline({ year: '', description: '' });
+                  setShowTimelineForm(!showTimelineForm);
+                }}
+                style={{
+                  background: 'rgba(0,255,65,0.06)', border: '1px solid rgba(0,255,65,0.15)',
+                  borderRadius: '20px', padding: '5px 12px', fontFamily: 'Space Mono', fontSize: '9px',
+                  color: 'var(--green)', cursor: 'pointer', marginLeft: 'auto'
+                }}
+              >
+                {showTimelineForm ? 'ANNULER' : '+ AJOUTER'}
+              </button>
+            )
+          )}
+          
+          {showTimelineForm && (
+            <div style={{ margin: '0 14px 16px', background: 'var(--glass)', padding: '12px', borderRadius: '10px', border: '1px solid var(--subtle)' }}>
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                <input 
+                  style={{ width: '60px', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--subtle)', borderRadius: '6px', padding: '6px', color: '#FFF', fontSize: '12px' }}
+                  placeholder="2024" maxLength={4}
+                  value={newTimeline.year} onChange={e => setNewTimeline({...newTimeline, year: e.target.value})}
+                />
+                <input 
+                  style={{ flex: 1, background: 'rgba(0,0,0,0.4)', border: '1px solid var(--subtle)', borderRadius: '6px', padding: '6px', color: '#FFF', fontSize: '12px' }}
+                  placeholder="Lancement du canal VIP"
+                  value={newTimeline.description} onChange={e => setNewTimeline({...newTimeline, description: e.target.value})}
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <button onClick={() => {
+                  setShowTimelineForm(false);
+                  setEditingTimelineId(null);
+                  setNewTimeline({ year: '', description: '' });
+                }} style={{ background: 'transparent', border: 'none', color: 'var(--muted)', fontSize: '10px', cursor: 'pointer' }}>Annuler</button>
                 <button 
-                  onClick={() => setShowEliteModal(true)}
-                  style={{ 
-                    width: '100%', 
-                    height: '48px', 
-                    borderRadius: '10px', 
-                    background: 'linear-gradient(135deg, rgba(255,214,10,0.15), rgba(255,180,0,0.06))', 
-                    border: '1px solid rgba(255,214,10,0.3)', 
-                    color: 'var(--amber)', 
-                    fontFamily: 'Space Mono', 
-                    fontSize: '11px', 
-                    fontWeight: 700, 
-                    cursor: 'pointer', 
-                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)', 
-                    boxShadow: '0 0 15px rgba(255,214,10,0.05)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px'
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.boxShadow = '0 0 25px rgba(255,214,10,0.2)';
-                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(255,214,10,0.22), rgba(255,180,0,0.1))';
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.boxShadow = '0 0 15px rgba(255,214,10,0.05)';
-                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(255,214,10,0.15), rgba(255,180,0,0.06))';
-                  }}
+                  onClick={editingTimelineId ? handleUpdateTimeline : handleAddTimeline} 
+                  style={{ background: 'var(--green)', color: '#000', border: 'none', borderRadius: '6px', padding: '4px 12px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}
                 >
-                  ✦ VOIR LES DÉTAILS DU PROGRAMME →
+                  {editingTimelineId ? 'Mettre à jour' : 'Ajouter'}
                 </button>
               </div>
             </div>
           )}
+
+          <div style={{ padding: '0 14px', display: 'flex', flexDirection: 'column' }}>
+            {timeline.length === 0 ? (
+              <div style={{ background: 'var(--glass)', border: '1px dashed rgba(255,255,255,0.06)', borderRadius: '10px', padding: '20px', textAlign: 'center', fontSize: '12px', color: 'rgba(255,255,255,0.2)', fontStyle: 'italic' }}>
+                Aucun événement dans la chronologie
+                {isAdminUser && <div style={{ marginTop: '4px' }}>Cliquez sur + AJOUTER pour commencer</div>}
+              </div>
+            ) : (
+              timeline.map((item, idx) => (
+                <div key={item.id} style={{ display: 'flex', gap: '16px', paddingBottom: '20px', position: 'relative' }}>
+                  <div style={{ minWidth: '44px', position: 'relative' }}>
+                    <div style={{ fontFamily: 'Space Mono', fontSize: '12px', fontWeight: 700, color: 'var(--green)', lineHeight: 1.4, textAlign: 'right' }}>
+                      {item.year}
+                    </div>
+                    <div style={{ position: 'absolute', right: '-12px', top: '3px', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--green)', boxShadow: '0 0 6px rgba(0,255,65,0.4)' }} />
+                  </div>
+                  
+                  {idx !== timeline.length - 1 && (
+                    <div style={{ position: 'absolute', left: 'calc(44px + 8px)', top: '12px', width: '1px', height: 'calc(100% - 4px)', background: 'rgba(0,255,65,0.12)' }} />
+                  )}
+                  
+                  <div style={{ flex: 1, fontSize: '13px', color: 'rgba(255,255,255,0.7)', lineHeight: 1.5, paddingTop: '1px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <span>{item.description}</span>
+                    {isAdminUser && (
+                      <div style={{ display: 'flex', gap: '10px', marginLeft: '10px' }}>
+                        <Pencil 
+                          size={14} 
+                          color="var(--green)" 
+                          style={{ cursor: 'pointer', opacity: 0.6 }}
+                          onClick={() => handleEditTimeline(item)}
+                        />
+                        <Trash2 
+                          size={14} 
+                          color="#FF3B30" 
+                          style={{ cursor: 'pointer', opacity: 0.6 }}
+                          onClick={() => handleDeleteTimeline(item.id)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </>
       )}
-      <PoweredBy />
+
+      {/* BLOCK 6 - ACCOMPAGNEMENT EXCLUSIF */}
+      {!tenantFeatures.canAddCoachingElite ? (
+        isAdminUser ? (
+          <>
+            {renderSectionHeader(
+              "ACCOMPAGNEMENT EXCLUSIF",
+              undefined,
+              { background: 'var(--amber)', boxShadow: '0 0 8px rgba(255,214,10,0.4)' }
+            )}
+            <div style={{ padding: '0 14px 40px' }}>
+              <LockedFeature
+                currentPlan={tenantPlanKey}
+                requiredPlan="premium"
+                featureName="Accompagnement Élite"
+                description="Proposez un coaching privé sur-mesure à vos membres et maximisez vos revenus d'affiliation."
+                mode="replace"
+                onUpgrade={() => setShowUpgradeSheet(true)}
+              />
+            </div>
+          </>
+        ) : null
+      ) : (
+        (localConfig?.elite_title || isAdminUser) && (
+          <>
+            {renderSectionHeader(
+              "ACCOMPAGNEMENT EXCLUSIF",
+              isAdminUser && (
+                <Pencil 
+                  size={14} 
+                  color="var(--amber)" 
+                  onClick={() => setShowEliteForm(!showEliteForm)} 
+                  style={{ 
+                    marginLeft: 'auto', 
+                    cursor: 'pointer', 
+                    transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)', 
+                    transform: showEliteForm ? 'rotate(90deg)' : 'none',
+                    opacity: 0.8
+                  }} 
+                />
+              ),
+              { background: 'var(--amber)', boxShadow: '0 0 8px rgba(255,214,10,0.4)' }
+            )}
+            
+            {isAdminUser && showEliteForm ? (
+              <div style={{ 
+                margin: '0 14px 40px', 
+                background: 'var(--glass)', 
+                border: '1px solid rgba(255, 214, 10, 0.25)', 
+                padding: '20px', 
+                borderRadius: '14px', 
+                display: 'flex', 
+                flexDirection: 'column', 
+                gap: '16px', 
+                position: 'relative', 
+                overflow: 'hidden', 
+                boxShadow: '0 8px 32px 0 rgba(255, 214, 10, 0.05)',
+                backdropFilter: 'blur(12px)',
+                WebkitBackdropFilter: 'blur(12px)'
+              }}>
+                {/* Gold cyberpunk status stripe */}
+                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '3px', background: 'linear-gradient(90deg, transparent, var(--amber), transparent)' }} />
+                
+                {/* Header inside admin console */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                  <Settings size={15} color="var(--amber)" style={{ animation: 'spin 4s linear infinite' }} />
+                  <span style={{ fontFamily: 'Space Mono', fontSize: '10px', fontWeight: 800, color: 'var(--amber)', letterSpacing: '0.1em' }}>
+                    ÉDITEUR ACCOMPAGNEMENT ÉLITE
+                  </span>
+                  <span style={{ 
+                    marginLeft: 'auto', 
+                    fontSize: '8px', 
+                    background: 'rgba(255, 214, 10, 0.08)', 
+                    border: '1px solid rgba(255, 214, 10, 0.2)', 
+                    padding: '2px 6px', 
+                    borderRadius: '4px', 
+                    color: 'var(--amber)', 
+                    fontFamily: 'Space Mono', 
+                    fontWeight: 700 
+                  }}>
+                    CONSOLE SÉCURISÉE
+                  </span>
+                </div>
+
+                {/* Title Input Group */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                  <label style={{ fontSize: '9px', fontFamily: 'Space Mono', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em', fontWeight: 600 }}>
+                    TITRE DE L'OFFRE COACHING
+                  </label>
+                  <input 
+                    style={{
+                      background: 'rgba(0, 0, 0, 0.35)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      borderRadius: '8px',
+                      padding: '10px 12px',
+                      color: '#FFF',
+                      fontSize: '13px',
+                      outline: 'none',
+                      fontFamily: 'inherit',
+                      transition: 'border-color 0.2s',
+                      boxSizing: 'border-box',
+                      width: '100%'
+                    }}
+                    value={localTenant.elite_title || ''}
+                    placeholder="COACHING PRIVÉ ÉLITE"
+                    onChange={(e) => setLocalTenant({...localTenant, elite_title: e.target.value})}
+                    onBlur={() => handleUpdateTenant('elite_title', localTenant.elite_title)}
+                    onFocus={(e) => e.target.style.borderColor = 'rgba(255, 214, 10, 0.4)'}
+                  />
+                </div>
+
+                {/* Description Textarea Group */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                  <label style={{ fontSize: '9px', fontFamily: 'Space Mono', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em', fontWeight: 600 }}>
+                    DESCRIPTION DU PROGRAMME
+                  </label>
+                  <textarea 
+                    style={{
+                      background: 'rgba(0, 0, 0, 0.35)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      borderRadius: '8px',
+                      padding: '10px 12px',
+                      color: '#E0E0E0',
+                      fontSize: '12px',
+                      lineHeight: 1.6,
+                      minHeight: '80px',
+                      outline: 'none',
+                      resize: 'vertical',
+                      fontFamily: 'inherit',
+                      boxSizing: 'border-box',
+                      width: '100%'
+                    }}
+                    value={localTenant.elite_description || ''}
+                    placeholder="Décrivez l'accompagnement privé, la fréquence des séances, etc..."
+                    onChange={(e) => setLocalTenant({...localTenant, elite_description: e.target.value})}
+                    onBlur={() => handleUpdateTenant('elite_description', localTenant.elite_description)}
+                    onFocus={(e) => e.target.style.borderColor = 'rgba(255, 214, 10, 0.4)'}
+                  />
+                </div>
+
+                {/* Price Group */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={{ 
+                    fontSize: '9px', 
+                    fontFamily: 'Space Mono', 
+                    color: 'rgba(255,214,10,0.5)', 
+                    letterSpacing: '0.12em', 
+                    fontWeight: 700,
+                    textTransform: 'uppercase'
+                  }}>
+                    — PRIX D'ACCÈS
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <input 
+                      style={{
+                        background: 'rgba(255, 214, 10, 0.04)',
+                        border: '1px solid rgba(255, 214, 10, 0.2)',
+                        borderRadius: '10px',
+                        padding: '12px 16px',
+                        color: 'var(--amber)',
+                        fontFamily: 'Space Mono',
+                        fontSize: '16px',
+                        fontWeight: 800,
+                        outline: 'none',
+                        boxSizing: 'border-box',
+                        width: '100%',
+                        letterSpacing: '0.05em',
+                        transition: 'border-color 0.2s, box-shadow 0.2s',
+                      }}
+                      value={localTenant.elite_price || ''}
+                      placeholder="ex: 500€/mois"
+                      onChange={(e) => setLocalTenant({...localTenant, elite_price: e.target.value})}
+                      onBlur={(e) => {
+                        e.currentTarget.style.borderColor = 'rgba(255, 214, 10, 0.2)';
+                        e.currentTarget.style.boxShadow = 'none';
+                        handleUpdateTenant('elite_price', localTenant.elite_price);
+                      }}
+                      onFocus={(e) => {
+                        e.currentTarget.style.borderColor = 'rgba(255, 214, 10, 0.55)';
+                        e.currentTarget.style.boxShadow = '0 0 18px rgba(255, 214, 10, 0.12)';
+                      }}
+                    />
+                  </div>
+                  <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.25)', fontFamily: 'Space Mono', letterSpacing: '0.05em' }}>
+                    Laissez vide pour ne pas afficher de prix
+                  </span>
+                </div>
+
+                {/* Benefits Checklist Group */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '9px', fontFamily: 'Space Mono', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em', fontWeight: 600, marginBottom: '2px' }}>
+                    ✏️ BÉNÉFICES CLÉS INCLUS (Max 6)
+                  </label>
+                  {(() => {
+                    const benefits: string[] = (() => {
+                      try {
+                        const raw = localTenant.elite_benefits;
+                        if (Array.isArray(raw)) return raw;
+                        if (typeof raw === 'string') return JSON.parse(raw);
+                        return ["Accès prioritaire direct au mentor", "Suivi personnalisé et plan d'action", "Analyse de vos trades et corrections", "Accélération vers la rentabilité"];
+                      } catch { return ["Accès prioritaire direct au mentor", "Suivi personnalisé et plan d'action", "Analyse de vos trades et corrections", "Accélération vers la rentabilité"]; }
+                    })();
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {benefits.map((b, i) => (
+                          <div key={i} style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '8px', 
+                            background: 'rgba(255,255,255,0.02)', 
+                            border: '1px solid rgba(255,255,255,0.06)', 
+                            borderRadius: '8px', 
+                            padding: '6px 10px',
+                            transition: 'border-color 0.2s'
+                          }}>
+                            <div style={{ 
+                              width: '16px', 
+                              height: '16px', 
+                              borderRadius: '50%', 
+                              background: 'rgba(255, 214, 10, 0.1)', 
+                              border: '1px solid rgba(255, 214, 10, 0.3)', 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'center', 
+                              flexShrink: 0 
+                            }}>
+                              <span style={{ color: 'var(--amber)', fontSize: '10px', fontWeight: 'bold' }}>✓</span>
+                            </div>
+                            <input 
+                              style={{ 
+                                flex: 1, 
+                                background: 'transparent', 
+                                border: 'none', 
+                                color: '#F0F0F0', 
+                                fontSize: '12px', 
+                                outline: 'none',
+                                fontFamily: 'inherit'
+                              }}
+                              value={b}
+                              placeholder="Nouveau bénéfice..."
+                              onChange={e => {
+                                const next = [...benefits];
+                                next[i] = e.target.value;
+                                setLocalTenant({ ...localTenant, elite_benefits: next });
+                              }}
+                              onBlur={() => handleUpdateTenant('elite_benefits', localTenant.elite_benefits)}
+                            />
+                            <button 
+                              onClick={() => {
+                                const next = benefits.filter((_, idx) => idx !== i);
+                                setLocalTenant({ ...localTenant, elite_benefits: next });
+                                handleUpdateTenant('elite_benefits', next);
+                              }}
+                              style={{ 
+                                background: 'rgba(255, 59, 48, 0.08)', 
+                                border: '1px solid rgba(255, 59, 48, 0.2)', 
+                                borderRadius: '6px', 
+                                width: '26px', 
+                                height: '26px', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                justifyContent: 'center', 
+                                color: '#FF3B30', 
+                                cursor: 'pointer', 
+                                transition: 'all 0.2s', 
+                                flexShrink: 0 
+                              }}
+                              onMouseEnter={e => {
+                                e.currentTarget.style.background = 'rgba(255, 59, 48, 0.2)';
+                                e.currentTarget.style.color = '#FF453A';
+                              }}
+                              onMouseLeave={e => {
+                                e.currentTarget.style.background = 'rgba(255, 59, 48, 0.08)';
+                                e.currentTarget.style.color = '#FF3B30';
+                              }}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        ))}
+                        {benefits.length < 6 && (
+                          <button 
+                            onClick={() => {
+                              const next = [...benefits, 'Nouveau bénéfice...'];
+                              setLocalTenant({ ...localTenant, elite_benefits: next });
+                              handleUpdateTenant('elite_benefits', next);
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '6px',
+                              background: 'rgba(0, 255, 65, 0.04)',
+                              border: '1px dashed rgba(0, 255, 65, 0.25)',
+                              borderRadius: '8px',
+                              padding: '9px',
+                              color: 'var(--green)',
+                              fontFamily: 'Space Mono',
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={e => {
+                              e.currentTarget.style.background = 'rgba(0, 255, 65, 0.08)';
+                              e.currentTarget.style.borderColor = 'rgba(0, 255, 65, 0.4)';
+                            }}
+                            onMouseLeave={e => {
+                              e.currentTarget.style.background = 'rgba(0, 255, 65, 0.04)';
+                              e.currentTarget.style.borderColor = 'rgba(0, 255, 65, 0.25)';
+                            }}
+                          >
+                            <Plus size={11} />
+                            AJOUTER UN BÉNÉFICE
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Contact Link Group */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', marginBottom: '4px' }}>
+                  <label style={{ fontSize: '9px', fontFamily: 'Space Mono', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em', fontWeight: 600 }}>
+                    🔗 LIEN DE CONTACT TELEGRAM / WHATSAPP
+                  </label>
+                  <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    background: 'rgba(0,0,0,0.3)', 
+                    border: '1px solid rgba(255, 255, 255, 0.08)', 
+                    borderRadius: '8px', 
+                    overflow: 'hidden' 
+                  }}>
+                    <span style={{ 
+                      padding: '0 12px', 
+                      fontSize: '10px', 
+                      fontFamily: 'Space Mono', 
+                      color: 'rgba(255,255,255,0.3)', 
+                      borderRight: '1px solid rgba(255,255,255,0.08)', 
+                      height: '38px', 
+                      display: 'flex', 
+                      alignItems: 'center',
+                      background: 'rgba(255,255,255,0.01)'
+                    }}>
+                      Lien direct wa.me / t.me
+                    </span>
+                    <input 
+                      style={{ 
+                        flex: 1, 
+                        background: 'transparent', 
+                        border: 'none', 
+                        padding: '10px 12px', 
+                        color: '#FFF', 
+                        fontSize: '12px', 
+                        outline: 'none',
+                        fontFamily: 'inherit'
+                      }}
+                      value={localTenant.elite_contact_url || ''}
+                      placeholder="@nom_d_utilisateur ou https://t.me/..."
+                      onChange={e => setLocalTenant({ ...localTenant, elite_contact_url: e.target.value })}
+                      onBlur={() => handleUpdateTenant('elite_contact_url', localTenant.elite_contact_url)}
+                    />
+                  </div>
+                </div>
+
+                {/* Control Action Buttons */}
+                <button 
+                  onClick={() => setShowEliteForm(false)}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    background: 'linear-gradient(135deg, rgba(255,214,10,0.15), rgba(255,180,0,0.08))',
+                    border: '1px solid rgba(255, 214, 10, 0.25)',
+                    color: 'var(--amber)',
+                    fontFamily: 'Space Mono',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    textAlign: 'center',
+                    marginTop: '8px'
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.background = 'rgba(255, 214, 10, 0.2)';
+                    e.currentTarget.style.boxShadow = '0 0 15px rgba(255, 214, 10, 0.15)';
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.background = 'rgba(255, 214, 10, 0.15)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                >
+                  FERMER L'ÉDITEUR & ACCÉDER AU RENDU PREMIUM
+                </button>
+              </div>
+            ) : (
+              <div style={{ 
+                margin: '0 14px 40px', 
+                background: 'var(--glass)', 
+                border: '1px solid var(--subtle)', 
+                borderRadius: '14px', 
+                overflow: 'hidden', 
+                position: 'relative',
+                boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.2)'
+              }}>
+                
+                {/* Dynamic Pencil edit tab trigger only for admin user */}
+                {isAdminUser && (
+                  <div 
+                    onClick={() => setShowEliteForm(true)}
+                    style={{
+                      position: 'absolute',
+                      top: '12px',
+                      left: '12px',
+                      background: 'rgba(255,214,10,0.12)',
+                      border: '1px solid rgba(255,214,10,0.25)',
+                      borderRadius: '20px',
+                      padding: '4px 10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      color: 'var(--amber)',
+                      fontFamily: 'Space Mono',
+                      fontSize: '9px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      zIndex: 9,
+                      backdropFilter: 'blur(8px)',
+                      WebkitBackdropFilter: 'blur(8px)',
+                      transition: 'all 0.2s',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.background = 'rgba(255,214,10,0.22)';
+                      e.currentTarget.style.transform = 'scale(1.03)';
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.background = 'rgba(255,214,10,0.12)';
+                      e.currentTarget.style.transform = 'scale(1)';
+                    }}
+                  >
+                    <Pencil size={10} />
+                    CONFIGURER L'ACCOMPAGNEMENT
+                  </div>
+                )}
+
+                {/* Cover Banner */}
+                <div style={{ position: 'relative', width: '100%', paddingTop: '56.25%', background: 'rgba(255,255,255,0.02)' }}>
+                  {localTenant?.elite_cover_url ? (
+                    <img 
+                      src={localTenant.elite_cover_url} 
+                      style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }} 
+                      alt="Elite Coaching" 
+                    />
+                  ) : (
+                    <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                      <ImagePlus size={32} color="rgba(255,255,255,0.1)" />
+                      <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.2)', fontWeight: 700, letterSpacing: '0.1em' }}>CADRE COUVERTURE COACHING</span>
+                    </div>
+                  )}
+                  
+                  {isAdminUser && (
+                    <label style={{ 
+                      position: 'absolute', 
+                      bottom: '12px', 
+                      right: '12px', 
+                      background: 'var(--green)', 
+                      width: '36px', 
+                      height: '36px', 
+                      borderRadius: '50%', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center', 
+                      cursor: 'pointer', 
+                      boxShadow: '0 4px 20px rgba(0,255,65,0.35)', 
+                      zIndex: 10,
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.08)'}
+                    onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+                    >
+                      <Camera size={17} color="#050507" />
+                      <input type="file" style={{ display: 'none' }} accept="image/*" onChange={(e) => handleImageUpload(e, 'elite_cover')} />
+                    </label>
+                  )}
+                </div>
+
+                {/* Public/Teaser Card Details */}
+                <div style={{ padding: '16px' }}>
+                  <div style={{ 
+                    background: 'rgba(255,214,10,0.08)', 
+                    border: '1px solid rgba(255,214,10,0.18)', 
+                    borderRadius: '4px', 
+                    padding: '3px 10px', 
+                    fontFamily: 'Space Mono', 
+                    fontSize: '8px', 
+                    letterSpacing: '0.15em', 
+                    color: 'var(--amber)', 
+                    display: 'inline-block', 
+                    marginBottom: '6px',
+                    fontWeight: 700
+                  }}>
+                    ACCOMPAGNEMENT EXCLUSIF
+                  </div>
+                  <div style={{ fontSize: '11px', fontStyle: 'italic', color: 'rgba(255,255,255,0.4)', marginBottom: '8px' }}>
+                    One to One
+                  </div>
+                  
+                  <div style={{ fontSize: '18px', fontWeight: 800, color: '#F0F0F0', lineHeight: 1.3 }}>
+                    {localTenant.elite_title || 'COACHING PRIVÉ ÉLITE'}
+                  </div>
+
+                  <div style={{ fontSize: '12px', color: 'var(--muted)', lineHeight: 1.7, margin: '10px 0', minHeight: '40px' }}>
+                    {localTenant.elite_description || 'Bénéficiez d\'une immersion complète et d\'un encadrement direct de haut niveau pour accélérer votre transition vers la rentabilité.'}
+                  </div>
+
+                  {localTenant.elite_price && (
+                    <div style={{ 
+                      display: 'inline-flex', 
+                      alignItems: 'center', 
+                      background: 'rgba(255,214,10,0.06)', 
+                      border: '1px solid rgba(255,214,10,0.18)', 
+                      borderRadius: '8px', 
+                      padding: '8px 16px', 
+                      marginBottom: '16px', 
+                      fontFamily: 'Space Mono', 
+                      fontSize: '18px', 
+                      fontWeight: 800, 
+                      color: 'var(--amber)' 
+                    }}>
+                      {localTenant.elite_price}
+                    </div>
+                  )}
+
+                  <button 
+                    onClick={() => setShowEliteModal(true)}
+                    style={{ 
+                      width: '100%', 
+                      height: '48px', 
+                      borderRadius: '10px', 
+                      background: 'linear-gradient(135deg, rgba(255,214,10,0.15), rgba(255,180,0,0.06))', 
+                      border: '1px solid rgba(255,214,10,0.3)', 
+                      color: 'var(--amber)', 
+                      fontFamily: 'Space Mono', 
+                      fontSize: '11px', 
+                      fontWeight: 700, 
+                      cursor: 'pointer', 
+                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)', 
+                      boxShadow: '0 0 15px rgba(255,214,10,0.05)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px'
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.boxShadow = '0 0 25px rgba(255,214,10,0.2)';
+                      e.currentTarget.style.background = 'linear-gradient(135deg, rgba(255,214,10,0.22), rgba(255,180,0,0.1))';
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.boxShadow = '0 0 15px rgba(255,214,10,0.05)';
+                      e.currentTarget.style.background = 'linear-gradient(135deg, rgba(255,214,10,0.15), rgba(255,180,0,0.06))';
+                    }}
+                  >
+                    ✦ VOIR LES DÉTAILS DU PROGRAMME →
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )
+      )}
 
       {/* BLOCK 7 - BROKERS */}
       {renderSectionHeader(
-        "DÉMARRE TON TRADING ICI",
+        t('profile.start_trading_here'),
         isAdminUser && (
           <Pencil size={14} color="var(--green)" onClick={() => setShowBrokersForm(!showBrokersForm)} style={{ marginLeft: 'auto', cursor: 'pointer' }} />
         )
       )}
       <div style={{ fontSize: '11px', color: 'var(--muted)', padding: '0 14px 10px' }}>
-        Ouvre un compte via nos liens officiels
+        {t('profile.open_account_links')}
       </div>
       
       {showBrokersForm && isAdminUser && (
         <div style={{ margin: '0 14px 16px', background: 'var(--glass)', padding: '16px', borderRadius: '12px', border: '1px solid var(--subtle)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {[1, 2].map(num => (
+          {brokerSlots.map(num => (
             <div key={num} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <div style={{ fontSize: '10px', color: 'var(--green)', fontFamily: 'Space Mono' }}>BROKER {num}</div>
               <input 
                 style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--subtle)', borderRadius: '8px', padding: '8px', color: '#FFF', fontSize: '12px' }}
-                placeholder="Nom du Broker"
+                placeholder={t('admin.broker_name')}
                 value={localConfig?.[`broker_${num}_name`] || ''}
                 onChange={e => handleUpdateConfig(`broker_${num}_name`, e.target.value)}
               />
               <input 
                 style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--subtle)', borderRadius: '8px', padding: '8px', color: '#FFF', fontSize: '12px' }}
-                placeholder="Lien d'affiliation"
+                placeholder={t('admin.affiliate_link')}
                 value={localConfig?.[`broker_${num}_url`] || ''}
                 onChange={e => handleUpdateConfig(`broker_${num}_url`, e.target.value)}
               />
             </div>
           ))}
-          <button onClick={() => setShowBrokersForm(false)} style={{ background: 'var(--green)', color: '#000', border: 'none', borderRadius: '8px', padding: '10px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}>Terminer</button>
+          <button onClick={() => setShowBrokersForm(false)} style={{ background: 'var(--green)', color: '#000', border: 'none', borderRadius: '8px', padding: '10px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}>{t('common.close')}</button>
         </div>
       )}
 
       <div style={{ margin: '0 14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        {[1, 2].map(num => {
+        {brokerSlots.map(num => {
           const name = localTenant?.[`broker_${num}_name`] || localConfig?.[`broker_${num}_name`];
           const url = localTenant?.[`broker_${num}_url`] || localConfig?.[`broker_${num}_url`];
           if (!name && !isAdminUser) return null;
@@ -1476,8 +1559,8 @@ export default function ProfileTab({ tenant_id, tenantProfile, config, isAdminUs
                   {name ? name.substring(0, 2).toUpperCase() : '?'}
                 </div>
                 <div>
-                  <div style={{ fontSize: '14px', fontWeight: 600 }}>{name || 'Configurer Broker'}</div>
-                  <div style={{ fontSize: '10px', color: 'var(--muted)' }}>Lien officiel partenaire</div>
+                  <div style={{ fontSize: '14px', fontWeight: 600 }}>{name || t('profile.configure_broker')}</div>
+                  <div style={{ fontSize: '10px', color: 'var(--muted)' }}>{t('profile.official_partner_link')}</div>
                 </div>
               </div>
               <ChevronRight size={16} color="rgba(255,255,255,0.2)" />
@@ -1486,31 +1569,9 @@ export default function ProfileTab({ tenant_id, tenantProfile, config, isAdminUs
         })}
       </div>
 
-      {/* Fallback broker 3 */}
-      {(localTenant?.broker_3_name || localConfig?.broker_3_name) && (
-        <div 
-          onClick={() => {
-            const url = localTenant?.broker_3_url || localConfig?.broker_3_url;
-            if (url) openLink(url);
-          }}
-          style={{ background: 'transparent', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '12px', padding: '12px 16px', margin: '8px 14px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--amber)' }}>⚠</span>
-            <div>
-              <div style={{ fontFamily: 'Space Mono', fontSize: '8px', letterSpacing: '0.1em', color: 'var(--amber)' }}>SI LES BROKERS SONT INDISPONIBLES</div>
-              <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>{localTenant?.broker_3_name || localConfig?.broker_3_name}</div>
-              <div style={{ fontSize: '8px', color: 'rgba(255,255,255,0.2)', letterSpacing: '0.1em' }}>OPTION DE SECOURS</div>
-            </div>
-          </div>
-          <ChevronRight size={14} color="rgba(255,255,255,0.15)" />
-        </div>
-      )}
-      <PoweredBy />
-
       {/* BLOCK 8 - DISCUTER AVEC LE MENTOR (Telegram + WhatsApp) */}
       {renderSectionHeader(
-        `DISCUTER AVEC ${mentorName.toUpperCase()}`,
+        t('profile.discuss_with_mentor', { mentor: mentorName.toUpperCase() }),
         isAdminUser && (
           <Pencil size={14} color="var(--green)" onClick={() => setShowSocialForm(!showSocialForm)} style={{ marginLeft: 'auto', cursor: 'pointer' }} />
         )
@@ -1543,52 +1604,56 @@ export default function ProfileTab({ tenant_id, tenantProfile, config, isAdminUs
             </div>
           </div>
 
-          {/* --- CONTENT NETWORKS --- */}
-          <div style={{ fontFamily: 'Space Mono', fontSize: '8px', letterSpacing: '0.15em', color: 'var(--muted)', marginTop: '8px', marginBottom: '2px' }}>RÉSEAUX SOCIAUX</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Youtube size={14} color="#FF0000" />
-              <input
-                style={{ flex: 1, background: 'rgba(0,0,0,0.4)', border: '1px solid var(--subtle)', borderRadius: '8px', padding: '8px', color: '#FFF', fontSize: '12px' }}
-                placeholder="Lien YouTube (ex: https://youtube.com/@channel)"
-                value={localTenant?.social_youtube || ''}
-                onChange={e => setLocalTenant({...localTenant, social_youtube: e.target.value})}
-                onBlur={e => handleUpdateTenant('social_youtube', e.target.value)}
-              />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: 14, lineHeight: 1 }}>♪</span>
-              <input
-                style={{ flex: 1, background: 'rgba(0,0,0,0.4)', border: '1px solid var(--subtle)', borderRadius: '8px', padding: '8px', color: '#FFF', fontSize: '12px' }}
-                placeholder="Lien TikTok (ex: https://tiktok.com/@user)"
-                value={localTenant?.social_tiktok || ''}
-                onChange={e => setLocalTenant({...localTenant, social_tiktok: e.target.value})}
-                onBlur={e => handleUpdateTenant('social_tiktok', e.target.value)}
-              />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Instagram size={14} color="#E1306C" />
-              <input
-                style={{ flex: 1, background: 'rgba(0,0,0,0.4)', border: '1px solid var(--subtle)', borderRadius: '8px', padding: '8px', color: '#FFF', fontSize: '12px' }}
-                placeholder="Lien Instagram (ex: https://instagram.com/user)"
-                value={localTenant?.social_instagram || ''}
-                onChange={e => setLocalTenant({...localTenant, social_instagram: e.target.value})}
-                onBlur={e => handleUpdateTenant('social_instagram', e.target.value)}
-              />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: 14, color: '#1877F2', fontWeight: 900, lineHeight: 1 }}>f</span>
-              <input
-                style={{ flex: 1, background: 'rgba(0,0,0,0.4)', border: '1px solid var(--subtle)', borderRadius: '8px', padding: '8px', color: '#FFF', fontSize: '12px' }}
-                placeholder="Lien Facebook (ex: https://facebook.com/page)"
-                value={localTenant?.social_facebook || ''}
-                onChange={e => setLocalTenant({...localTenant, social_facebook: e.target.value})}
-                onBlur={e => handleUpdateTenant('social_facebook', e.target.value)}
-              />
-            </div>
-          </div>
+          {canShowPublicSocials && (
+            <>
+              {/* --- CONTENT NETWORKS --- */}
+              <div style={{ fontFamily: 'Space Mono', fontSize: '8px', letterSpacing: '0.15em', color: 'var(--muted)', marginTop: '8px', marginBottom: '2px' }}>{t('profile.social_networks')}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Youtube size={14} color="#FF0000" />
+                  <input
+                    style={{ flex: 1, background: 'rgba(0,0,0,0.4)', border: '1px solid var(--subtle)', borderRadius: '8px', padding: '8px', color: '#FFF', fontSize: '12px' }}
+                    placeholder="Lien YouTube (ex: https://youtube.com/@channel)"
+                    value={localTenant?.social_youtube || ''}
+                    onChange={e => setLocalTenant({...localTenant, social_youtube: e.target.value})}
+                    onBlur={e => handleUpdateTenant('social_youtube', e.target.value)}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: 14, lineHeight: 1 }}>♪</span>
+                  <input
+                    style={{ flex: 1, background: 'rgba(0,0,0,0.4)', border: '1px solid var(--subtle)', borderRadius: '8px', padding: '8px', color: '#FFF', fontSize: '12px' }}
+                    placeholder="Lien TikTok (ex: https://tiktok.com/@user)"
+                    value={localTenant?.social_tiktok || ''}
+                    onChange={e => setLocalTenant({...localTenant, social_tiktok: e.target.value})}
+                    onBlur={e => handleUpdateTenant('social_tiktok', e.target.value)}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Instagram size={14} color="#E1306C" />
+                  <input
+                    style={{ flex: 1, background: 'rgba(0,0,0,0.4)', border: '1px solid var(--subtle)', borderRadius: '8px', padding: '8px', color: '#FFF', fontSize: '12px' }}
+                    placeholder="Lien Instagram (ex: https://instagram.com/user)"
+                    value={localTenant?.social_instagram || ''}
+                    onChange={e => setLocalTenant({...localTenant, social_instagram: e.target.value})}
+                    onBlur={e => handleUpdateTenant('social_instagram', e.target.value)}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: 14, color: '#1877F2', fontWeight: 900, lineHeight: 1 }}>f</span>
+                  <input
+                    style={{ flex: 1, background: 'rgba(0,0,0,0.4)', border: '1px solid var(--subtle)', borderRadius: '8px', padding: '8px', color: '#FFF', fontSize: '12px' }}
+                    placeholder="Lien Facebook (ex: https://facebook.com/page)"
+                    value={localTenant?.social_facebook || ''}
+                    onChange={e => setLocalTenant({...localTenant, social_facebook: e.target.value})}
+                    onBlur={e => handleUpdateTenant('social_facebook', e.target.value)}
+                  />
+                </div>
+              </div>
+            </>
+          )}
 
-          <button onClick={() => setShowSocialForm(false)} style={{ background: 'var(--green)', color: '#000', border: 'none', borderRadius: '8px', padding: '10px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', marginTop: '4px', width: '100%' }}>Terminer</button>
+          <button onClick={() => setShowSocialForm(false)} style={{ background: 'var(--green)', color: '#000', border: 'none', borderRadius: '8px', padding: '10px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', marginTop: '4px', width: '100%' }}>{t('common.close')}</button>
         </div>
       )}
 
@@ -1633,9 +1698,9 @@ export default function ProfileTab({ tenant_id, tenantProfile, config, isAdminUs
       )}
 
       {/* BLOCK 8B - RÉSEAUX SOCIAUX (YouTube, TikTok, Instagram, Facebook) */}
-      {(localTenant?.social_youtube || localTenant?.social_tiktok || localTenant?.social_instagram || localTenant?.social_facebook) && (
+      {canShowPublicSocials && (localTenant?.social_youtube || localTenant?.social_tiktok || localTenant?.social_instagram || localTenant?.social_facebook) && (
         <>
-          {renderSectionHeader("NOS RÉSEAUX SOCIAUX")}
+          {renderSectionHeader(t('profile.our_social_networks'))}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', padding: '0 14px' }}>
             {localTenant?.social_youtube && (
               <button
@@ -1683,7 +1748,6 @@ export default function ProfileTab({ tenant_id, tenantProfile, config, isAdminUs
           </div>
         </>
       )}
-      <PoweredBy />
 
       {/* BLOCK 8B - NOTIFICATION PREFERENCES */}
       {currentUser && (
@@ -1815,6 +1879,13 @@ export default function ProfileTab({ tenant_id, tenantProfile, config, isAdminUs
       currentUser={currentUser}
       mentorName={mentorName}
     />
+
+    {showUpgradeSheet && (
+      <PlanComparisonSheet
+        currentPlan={tenantPlanKey}
+        onClose={() => setShowUpgradeSheet(false)}
+      />
+    )}
     </>
   );
 }

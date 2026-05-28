@@ -3,13 +3,10 @@ import { X, Zap, ArrowRight } from 'lucide-react';
 import { useOutletContext } from 'react-router-dom';
 
 export default function PoweredByBadge() {
-  const { tenantConfig } = useOutletContext<any>() || {};
+  const { planFeatures } = useOutletContext<{ planFeatures?: { showSniperBadge?: boolean } }>() || {};
   const [isOpen, setIsOpen] = useState(false);
-  
-  // Hide if empire plan (white-label)
-  const isEmpire = false; // TODO: get real plan from config. Currently hardcoded for demo
 
-  if (isEmpire) return null;
+  if (!planFeatures?.showSniperBadge) return null;
 
   return (
     <>
@@ -21,9 +18,6 @@ export default function PoweredByBadge() {
         >
           <div className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 bg-[var(--accent-neon)] rounded-full animate-pulse shadow-[0_0_8px_var(--accent-neon)]"></span>
-            <span className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest">
-              Powered By
-            </span>
           </div>
           <span className="text-[12px] font-black italic uppercase text-[var(--accent-neon)] leading-none">
             Sniper
@@ -72,7 +66,7 @@ export default function PoweredByBadge() {
               <span className="text-2xl font-black font-mono text-[var(--text-primary)]">49$/<span className="text-sm">mois</span></span>
             </div>
 
-            <a href="https://sniper.ephatatech.com" target="_blank" rel="noopener noreferrer" className="block w-full py-4 bg-[var(--accent-neon)] text-black rounded-xl text-center font-black uppercase tracking-widest text-sm hover:scale-[1.02] active:scale-95 transition-transform flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(0,255,65,0.4)]">
+            <a href={window.location.origin} target="_blank" rel="noopener noreferrer" className="block w-full py-4 bg-[var(--accent-neon)] text-black rounded-xl text-center font-black uppercase tracking-widest text-sm hover:scale-[1.02] active:scale-95 transition-transform flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(0,255,65,0.4)]">
               Créer mon app <ArrowRight size={18} />
             </a>
             

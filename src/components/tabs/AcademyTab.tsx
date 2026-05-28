@@ -12,7 +12,6 @@ import {
   CheckCircle as CheckCircleIcon
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { TENANT_ID } from '../../config';
 import { useOutletContext } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useUserRole } from '../../hooks/useUserRole';
@@ -22,7 +21,8 @@ import VipModal from '../VipModal';
 
 const AcademyTab = () => {
   const { t } = useTranslation();
-  const { tenantConfig } = useOutletContext<{ tenantConfig: any }>();
+  const { tenantConfig, tenant_id } = useOutletContext<{ tenantConfig: any; tenant_id?: string }>();
+  const tenantId = tenant_id || 'default';
   const { isAdmin, canSeeVipAcademy } = useUserRole();
   const { config } = useClientConfig();
   
@@ -33,22 +33,22 @@ const AcademyTab = () => {
 
   // Load progress from localStorage
   useEffect(() => {
-    const savedProgress = localStorage.getItem(`academy_progress_${TENANT_ID}`);
+    const savedProgress = localStorage.getItem(`academy_progress_${tenantId}`);
     if (savedProgress) {
       try {
         setCompletedLessons(JSON.parse(savedProgress));
       } catch (e) {}
     }
-  }, []);
+  }, [tenantId]);
 
   // TanStack Query for Modules (Cached & Loaded in Parallel)
   const { data: modules = [], isLoading: isLoadingModules } = useQuery({
-    queryKey: ['academy_modules', TENANT_ID],
+    queryKey: ['academy_modules', tenantId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('academy_modules')
         .select('*')
-        .eq('tenant_id', TENANT_ID)
+        .eq('tenant_id', tenantId)
         .order('sort_order', { ascending: true });
       if (error) throw error;
       return data || [];
@@ -58,12 +58,12 @@ const AcademyTab = () => {
 
   // TanStack Query for Lessons (Cached & Loaded in Parallel)
   const { data: lessons = [], isLoading: isLoadingLessons } = useQuery({
-    queryKey: ['academy_lessons', TENANT_ID],
+    queryKey: ['academy_lessons', tenantId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('academy_lessons')
         .select('*')
-        .eq('tenant_id', TENANT_ID)
+        .eq('tenant_id', tenantId)
         .order('sort_order', { ascending: true });
       if (error) throw error;
       return data || [];
@@ -93,7 +93,7 @@ const AcademyTab = () => {
       : [...completedLessons, id];
       
     setCompletedLessons(newCompleted);
-    localStorage.setItem(`academy_progress_${TENANT_ID}`, JSON.stringify(newCompleted));
+    localStorage.setItem(`academy_progress_${tenantId}`, JSON.stringify(newCompleted));
   };
 
   const openVipModal = () => {
@@ -135,14 +135,14 @@ const AcademyTab = () => {
             fontSize: '12px', fontWeight: 600,
             color: '#F0F0F0',
           }}>
-            Formation & Progression
+            {t('academy.subtitle')}
           </span>
           <span style={{
             fontFamily: 'Space Mono, monospace',
             fontSize: '11px',
             color: '#00FF41',
           }}>
-            {completedCount} / {totalCount} leçons
+            {completedCount} / {totalCount} {t('academy.lessons')}
           </span>
         </div>
         <div style={{
@@ -196,14 +196,14 @@ const AcademyTab = () => {
                 letterSpacing: '0.02em',
                 textTransform: 'uppercase'
               }}>
-                Contenu VIP Verrouillé
+                {t('locked_feature.required', { plan: t('common.vip_badge') })}
               </span>
               <span style={{
                 fontSize: '10px',
                 color: 'rgba(255,255,255,0.5)',
                 fontWeight: 500
               }}>
-                {lockedCount} leçons exclusives à débloquer
+                {lockedCount} {t('academy.lessons')}
               </span>
             </div>
           </div>
@@ -224,7 +224,7 @@ const AcademyTab = () => {
               flexShrink: 0
             }}
           >
-            DÉBLOQUER
+            {t('common.unlock')}
           </button>
         </div>
       )}
@@ -324,195 +324,270 @@ const AcademyTab = () => {
                 </div>
               </div>
 
-              {/* FIX 4 — LESSONS GRID (2 columns) */}
+              {/* LESSONS — 2-column premium card grid */}
               {isOpen && (
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  gap: '8px',
-                  marginTop: '10px',
-                  marginBottom: '20px'
-                }}>
-                  {modLessons.map((lesson) => {
-                    const isLocked = !lesson.is_free && !canSeeVipAcademy;
-                    const isCompleted = completedLessons.includes(lesson.id);
-                    const isPlaying = playingLesson === lesson.id;
-                    
-                    return (
-                      <div
-                        key={lesson.id}
-                        onClick={() => isLocked ? openVipModal() : (isPlaying ? setPlayingLesson(null) : setPlayingLesson(lesson.id))}
-                        style={{
-                          background: 'rgba(255,255,255,0.025)',
-                          border: '1px solid rgba(255,255,255,0.07)',
-                          borderRadius: '10px',
-                          overflow: 'hidden',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {/* Thumbnail */}
-                        <div style={{
-                          height: '80px',
-                          position: 'relative',
-                          background: '#0F1220',
-                          overflow: 'hidden',
-                        }}>
-                          {lesson.youtube_id ? (
-                            <img
-                              src={`https://img.youtube.com/vi/${lesson.youtube_id}/mqdefault.jpg`}
-                              alt={lesson.title}
-                              style={{
-                                width: '100%', height: '100%',
-                                objectFit: 'cover',
-                                opacity: isLocked ? 0.6 : 1,
-                                filter: isLocked ? 'blur(4px) brightness(0.7)' : 'none',
-                                transition: 'all 0.3s ease',
-                              }}
-                            />
-                          ) : (
-                            <div style={{
-                              width: '100%', height: '100%',
-                              display: 'flex', alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: '24px', opacity: 0.15,
-                            }}>
-                              ▶
-                            </div>
-                          )}
-
-                          {/* Play overlay */}
-                          {!isLocked && !isPlaying && (
-                            <div style={{
-                              position: 'absolute', inset: 0,
-                              display: 'flex', alignItems: 'center',
-                              justifyContent: 'center',
-                            }}>
-                              <div style={{
-                                width: '28px', height: '28px',
-                                borderRadius: '50%',
-                                background: 'rgba(0,255,65,0.85)',
-                                display: 'flex', alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '10px', color: '#050507',
-                              }}>
-                                ▶
-                              </div>
-                            </div>
-                          )}
-
-                          {/* YouTube Iframe if playing */}
-                          {isPlaying && !isLocked && (
-                            <iframe 
-                              src={`https://www.youtube.com/embed/${lesson.youtube_id}?autoplay=1`} 
-                              style={{ width: '100%', height: '100%', border: 'none', position: 'absolute', inset: 0, zIndex: 10 }}
-                              allow="autoplay; encrypted-media" 
-                              allowFullScreen
-                            />
-                          )}
-
-                          {/* Lock overlay for non-VIP */}
-                          {isLocked && (
-                            <div style={{
-                              position: 'absolute', inset: 0,
-                              background: 'rgba(0,0,0,0.4)',
-                              display: 'flex', flexDirection: 'column',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: '8px',
-                              zIndex: 5
-                            }}>
-                              <div style={{
-                                background: 'rgba(255,255,255,0.1)',
-                                backdropFilter: 'blur(4px)',
-                                border: '1px solid rgba(255,255,255,0.2)',
-                                borderRadius: '50%',
-                                width: '36px', height: '36px',
-                                display: 'flex', alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '18px',
-                              }}>
-                                🔒
-                              </div>
-                              <span style={{
-                                fontSize: '10px',
-                                fontWeight: 900,
-                                color: '#FFFFFF',
-                                letterSpacing: '0.1em',
-                                textTransform: 'uppercase',
-                                textShadow: '0 2px 4px rgba(0,0,0,0.5)'
-                              }}>
-                                DÉBLOQUER
-                              </span>
-                            </div>
-                          )}
-
-                          {/* PREMIUM badge */}
-                          {isLocked && (
-                            <div style={{
-                              position: 'absolute', top: '4px', right: '4px',
-                              fontFamily: 'Space Mono, monospace',
-                              fontSize: '7px',
-                              padding: '2px 5px',
-                              borderRadius: '3px',
-                              background: 'rgba(255,214,10,0.15)',
-                              color: '#FFD60A',
-                              letterSpacing: '0.08em',
-                            }}>
-                              DÉBLOQUER
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Info */}
-                        <div style={{ padding: '8px 10px' }}>
-                          <div style={{
-                            fontSize: '11px', fontWeight: 600,
-                            lineHeight: 1.3, marginBottom: '4px',
-                            color: '#F0F0F0',
-                            display: '-webkit-box',
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: 'vertical',
-                            overflow: 'hidden',
-                          }}>
-                            {lesson.title}
-                          </div>
-                          <div style={{
-                            display: 'flex', justifyContent: 'space-between',
-                            alignItems: 'center',
-                          }}>
-                            <span style={{
-                              fontFamily: 'Space Mono, monospace',
-                              fontSize: '9px', color: 'rgba(255,255,255,0.3)',
-                            }}>
-                              {lesson.duration || '0:00'}
-                            </span>
-                            {isCompleted && (
-                              <span style={{
-                                fontFamily: 'Space Mono, monospace',
-                                fontSize: '8px',
-                                color: '#00FF41',
-                                letterSpacing: '0.08em',
-                              }}>
-                                ✓
-                              </span>
-                            )}
-                            {!isLocked && (
-                              <button 
-                                onClick={(e) => toggleCompleted(lesson.id, e)}
-                                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
-                              >
-                                <CheckCircle2 size={12} color={isCompleted ? '#00FF41' : 'rgba(255,255,255,0.2)'} />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {modLessons.length === 0 && (
-                    <div style={{ gridColumn: 'span 2', padding: 20, textAlign: 'center', fontSize: '10px', color: 'rgba(255,255,255,0.2)', textTransform: 'uppercase' }}>
+                <div style={{ marginTop: 6, marginBottom: 20 }}>
+                  {modLessons.length === 0 ? (
+                    <div style={{ padding: 20, textAlign: 'center', fontSize: '10px', color: 'rgba(255,255,255,0.2)', textTransform: 'uppercase' }}>
                       {t('academy.no_content')}
                     </div>
+                  ) : (
+                    <>
+                      {/* Full-width player when a lesson is active */}
+                      {playingLesson !== null && modLessons.some(l => l.id === playingLesson) && (() => {
+                        const activeLesson = modLessons.find(l => l.id === playingLesson)!;
+                        return (
+                          <div style={{
+                            marginBottom: 10,
+                            borderRadius: 12,
+                            overflow: 'hidden',
+                            aspectRatio: '16/9',
+                            border: '1px solid rgba(0,255,65,0.25)',
+                            boxShadow: '0 0 24px rgba(0,255,65,0.12)',
+                            position: 'relative',
+                          }}>
+                            <iframe
+                              src={`https://www.youtube.com/embed/${activeLesson.youtube_id}?autoplay=1`}
+                              style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+                              allow="autoplay; encrypted-media"
+                              allowFullScreen
+                            />
+                            {/* Close player */}
+                            <button
+                              onClick={() => setPlayingLesson(null)}
+                              style={{
+                                position: 'absolute', top: 8, right: 8,
+                                background: 'rgba(0,0,0,0.6)',
+                                border: '1px solid rgba(255,255,255,0.15)',
+                                borderRadius: 6,
+                                width: 26, height: 26,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                cursor: 'pointer',
+                                color: '#fff',
+                                fontSize: 12,
+                                zIndex: 20,
+                                padding: 0,
+                              }}
+                            >✕</button>
+                          </div>
+                        );
+                      })()}
+
+                      {/* 2-column grid */}
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: 8,
+                      }}>
+                        {modLessons.map((lesson, idx) => {
+                          const isLocked = !lesson.is_free && !canSeeVipAcademy;
+                          const isCompleted = completedLessons.includes(lesson.id);
+                          const isPlaying = playingLesson === lesson.id;
+
+                          return (
+                            <div
+                              key={lesson.id}
+                              onClick={() => isLocked ? openVipModal() : (isPlaying ? setPlayingLesson(null) : setPlayingLesson(lesson.id))}
+                              style={{
+                                background: isPlaying
+                                  ? 'rgba(0,255,65,0.06)'
+                                  : isCompleted
+                                    ? 'rgba(0,255,65,0.02)'
+                                    : 'rgba(255,255,255,0.025)',
+                                border: isPlaying
+                                  ? '1px solid rgba(0,255,65,0.35)'
+                                  : isLocked
+                                    ? '1px solid rgba(255,214,10,0.12)'
+                                    : '1px solid rgba(255,255,255,0.07)',
+                                borderRadius: 10,
+                                overflow: 'hidden',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                                display: 'flex',
+                                flexDirection: 'column',
+                              }}
+                            >
+                              {/* Thumbnail */}
+                              <div style={{
+                                position: 'relative',
+                                aspectRatio: '16/9',
+                                background: '#0a0c14',
+                                overflow: 'hidden',
+                              }}>
+                                {lesson.youtube_id ? (
+                                  <img
+                                    src={`https://img.youtube.com/vi/${lesson.youtube_id}/mqdefault.jpg`}
+                                    alt={lesson.title}
+                                    style={{
+                                      width: '100%', height: '100%',
+                                      objectFit: 'cover',
+                                      opacity: isLocked ? 0.4 : 1,
+                                      filter: isLocked ? 'blur(2px) brightness(0.55)' : 'none',
+                                      transition: 'all 0.3s ease',
+                                    }}
+                                  />
+                                ) : (
+                                  <div style={{
+                                    width: '100%', height: '100%',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 20, opacity: 0.1,
+                                  }}>▶</div>
+                                )}
+
+                                {/* Play overlay */}
+                                {!isLocked && !isPlaying && (
+                                  <div style={{
+                                    position: 'absolute', inset: 0,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    background: 'rgba(0,0,0,0.18)',
+                                  }}>
+                                    <div style={{
+                                      width: 26, height: 26,
+                                      borderRadius: '50%',
+                                      background: 'rgba(0,255,65,0.92)',
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      fontSize: 9, color: '#030305',
+                                      boxShadow: '0 0 14px rgba(0,255,65,0.55)',
+                                    }}>▶</div>
+                                  </div>
+                                )}
+
+                                {/* Lock overlay */}
+                                {isLocked && (
+                                  <div style={{
+                                    position: 'absolute', inset: 0,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    background: 'rgba(0,0,0,0.3)',
+                                  }}>
+                                    <Lock size={14} color="#FFD60A" />
+                                  </div>
+                                )}
+
+                                {/* NOW PLAYING badge */}
+                                {isPlaying && (
+                                  <div style={{
+                                    position: 'absolute', top: 4, left: 4,
+                                    fontFamily: 'Space Mono, monospace',
+                                    fontSize: 7, fontWeight: 700,
+                                    padding: '2px 6px', borderRadius: 4,
+                                    background: 'rgba(0,255,65,0.92)',
+                                    color: '#030305',
+                                    letterSpacing: '0.06em',
+                                  }}>▶ {t('dashboard.live_status')}</div>
+                                )}
+
+                                {/* Index */}
+                                <div style={{
+                                  position: 'absolute', bottom: 3, left: 4,
+                                  fontFamily: 'Space Mono, monospace',
+                                  fontSize: 7, color: 'rgba(255,255,255,0.55)',
+                                  background: 'rgba(0,0,0,0.6)',
+                                  padding: '1px 4px', borderRadius: 3,
+                                }}>
+                                  {String(idx + 1).padStart(2, '0')}
+                                </div>
+
+                                {/* Duration */}
+                                {lesson.duration && (
+                                  <div style={{
+                                    position: 'absolute', bottom: 3, right: 4,
+                                    fontFamily: 'Space Mono, monospace',
+                                    fontSize: 7, color: 'rgba(255,255,255,0.55)',
+                                    background: 'rgba(0,0,0,0.6)',
+                                    padding: '1px 4px', borderRadius: 3,
+                                  }}>
+                                    {lesson.duration}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Card footer: title + badge + check */}
+                              <div style={{
+                                padding: '8px 9px',
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: 6,
+                                flex: 1,
+                              }}>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  {/* Title */}
+                                  <div style={{
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    color: isLocked ? 'rgba(255,255,255,0.35)' : isCompleted ? 'rgba(255,255,255,0.55)' : '#F0F0F0',
+                                    lineHeight: 1.35,
+                                    overflow: 'hidden',
+                                    display: '-webkit-box',
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: 'vertical',
+                                    textDecoration: isCompleted ? 'line-through' : 'none',
+                                    marginBottom: 4,
+                                  }}>
+                                    {lesson.title}
+                                  </div>
+                                  {/* Badge */}
+                                  {lesson.is_free ? (
+                                    <span style={{
+                                      fontFamily: 'Space Mono, monospace',
+                                      fontSize: 7, fontWeight: 700,
+                                      padding: '2px 5px', borderRadius: 3,
+                                      background: 'rgba(0,255,65,0.08)',
+                                      color: '#00FF41',
+                                      border: '1px solid rgba(0,255,65,0.2)',
+                                      letterSpacing: '0.06em',
+                                      textTransform: 'uppercase',
+                                    }}>{t('common.free_badge')}</span>
+                                  ) : (
+                                    <span style={{
+                                      fontFamily: 'Space Mono, monospace',
+                                      fontSize: 7, fontWeight: 700,
+                                      padding: '2px 5px', borderRadius: 3,
+                                      background: 'rgba(255,214,10,0.08)',
+                                      color: '#FFD60A',
+                                      border: '1px solid rgba(255,214,10,0.2)',
+                                      letterSpacing: '0.06em',
+                                      textTransform: 'uppercase',
+                                    }}>VIP</span>
+                                  )}
+                                </div>
+
+                                {/* Completion toggle */}
+                                {!isLocked ? (
+                                  <button
+                                    onClick={(e) => toggleCompleted(lesson.id, e)}
+                                    title={isCompleted ? t('academy.already_completed') : t('academy.mark_completed')}
+                                    style={{
+                                      background: isCompleted ? 'rgba(0,255,65,0.12)' : 'rgba(255,255,255,0.04)',
+                                      border: `1px solid ${isCompleted ? 'rgba(0,255,65,0.35)' : 'rgba(255,255,255,0.1)'}`,
+                                      borderRadius: 6,
+                                      width: 24, height: 24,
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      cursor: 'pointer',
+                                      transition: 'all 0.2s ease',
+                                      padding: 0,
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    <CheckCircle2 size={12} color={isCompleted ? '#00FF41' : 'rgba(255,255,255,0.2)'} />
+                                  </button>
+                                ) : (
+                                  <div style={{
+                                    width: 24, height: 24,
+                                    borderRadius: 6,
+                                    background: 'rgba(255,214,10,0.05)',
+                                    border: '1px solid rgba(255,214,10,0.18)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    flexShrink: 0,
+                                  }}>
+                                    <Lock size={10} color="#FFD60A" />
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
                   )}
                 </div>
               )}
@@ -524,11 +599,11 @@ const AcademyTab = () => {
           <div style={{ margin: '0 14px', padding: '100px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <GraduationCap size={32} style={{ opacity: 0.3, marginBottom: 16, color: 'var(--text-primary)' }} />
             <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)', fontStyle: 'italic', marginBottom: 8 }}>
-              Aucun contenu disponible.
+              {t('academy.no_content')}
             </p>
             {isAdmin && (
               <p style={{ fontFamily: 'var(--mono)', fontSize: '10px', color: 'rgba(255,255,255,0.4)', marginTop: 8 }}>
-                Ajoutez vos modules dans Admin → Academy
+                {t('academy.create_first')}
               </p>
             )}
           </div>

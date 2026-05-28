@@ -1,8 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import { Users, CheckCircle, Ban, Shield, Activity, GraduationCap, Clock } from 'lucide-react';
+import { Users, CheckCircle, Ban, Shield, Activity, GraduationCap, Clock, ArrowUpRight } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { GlassCard, NeonButton, Badge } from '../../ui/Shared';
+import { QuotaBanner } from '../../ui/PlanGate';
+import type { PlanFeatures } from '../../../hooks/usePlanFeatures';
+import LockedFeature from '../../LockedFeature';
+import { useTranslation } from 'react-i18next';
 
 interface AccessRequest {
   id: string;
@@ -37,9 +41,12 @@ function computeExpiry(planLabel: string | null): string | null {
 
 interface MemberManagerProps {
   onShowToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  planFeatures: PlanFeatures;
+  onUpgrade: () => void;
 }
 
-const MemberManager = ({ onShowToast }: MemberManagerProps) => {
+const MemberManager = ({ onShowToast, planFeatures, onUpgrade }: MemberManagerProps) => {
+  const { t } = useTranslation();
   const { tenant_id: paramTenantId } = useParams();
   const TENANT_ID = paramTenantId || 'default';
   const [members, setMembers] = useState<any[]>([]);
@@ -91,38 +98,51 @@ const MemberManager = ({ onShowToast }: MemberManagerProps) => {
   }, [TENANT_ID]);
 
   const updateMemberStatus = async (id: string, status: string) => {
-    const { error } = await supabase.from('affiliates').update({ status }).eq('id', id);
+    const { error } = await supabase.from('affiliates').update({ status }).eq('id', id).eq('tenant_id', TENANT_ID);
     if (error) {
-      onShowToast("Erreur lors de la mise à jour du statut", "error");
+      onShowToast(t('members_admin.status_update_error'), "error");
     } else {
-      onShowToast(`Statut mis à jour: ${status}`, "success");
+      onShowToast(t('members_admin.status_updated', { status }), "success");
       setMembers(members.map(m => m.id === id ? { ...m, status } : m));
     }
   };
 
   const updateMemberPlan = async (id: string, is_vip: boolean) => {
-    const { error } = await supabase.from('affiliates').update({ is_vip }).eq('id', id);
+    const updates = {
+      is_vip,
+      has_signals_access: is_vip,
+      has_academy_access: is_vip
+    };
+    const { error } = await supabase.from('affiliates').update(updates).eq('id', id).eq('tenant_id', TENANT_ID);
     if (error) {
-      onShowToast("Erreur lors de la mise à jour du plan", "error");
+      onShowToast(t('members_admin.plan_update_error'), "error");
     } else {
-      onShowToast(`Plan mis à jour avec succès`, "success");
-      setMembers(members.map(m => m.id === id ? { ...m, is_vip } : m));
+      onShowToast(t('members_admin.plan_updated'), "success");
+      setMembers(members.map(m => m.id === id ? { ...m, ...updates } : m));
     }
   };
 
   const toggleAccess = async (id: string, field: string, currentValue: boolean) => {
     // This assumes custom fields has_signals_access and has_academy_access exist or can be set.
     // If they don't exist, this update might silently fail depending on RLS/schema, but we fulfill the requirement.
-    const { error } = await supabase.from('affiliates').update({ [field]: !currentValue }).eq('id', id);
+    const { error } = await supabase.from('affiliates').update({ [field]: !currentValue }).eq('id', id).eq('tenant_id', TENANT_ID);
     if (error) {
-      onShowToast(`Erreur de mise à jour des accès`, "error");
+      onShowToast(t('members_admin.access_update_error'), "error");
     } else {
-      onShowToast(`Accès mis à jour`, "success");
+      onShowToast(t('members_admin.access_updated'), "success");
       setMembers(members.map(m => m.id === id ? { ...m, [field]: !currentValue } : m));
     }
   };
 
   const confirmRequest = async (req: AccessRequest) => {
+    if (!planFeatures.canAcceptNewMembers) {
+      onShowToast(t('members_admin.pause_no_new_member'), 'warning');
+      return;
+    }
+    if (!planFeatures.membersUnlimited && activeMembers >= planFeatures.maxMembers) {
+      onShowToast(t('members_admin.member_limit_reached_desc', { count: planFeatures.maxMembers }), 'warning');
+      return;
+    }
     setConfirmingId(req.id);
     // Optimistic: remove from list
     setPendingRequests(prev => prev.filter(r => r.id !== req.id));
@@ -134,6 +154,9 @@ const MemberManager = ({ onShowToast }: MemberManagerProps) => {
     if (req.access_target === 'academy' || req.access_target === 'both') {
       updates.has_academy_access = true;
     }
+    if (req.access_target === 'signals' || req.access_target === 'both') {
+      updates.has_signals_access = true;
+    }
 
     const { error: affiliateErr } = await supabase
       .from('affiliates')
@@ -144,7 +167,7 @@ const MemberManager = ({ onShowToast }: MemberManagerProps) => {
     if (affiliateErr) {
       // Rollback
       setPendingRequests(prev => [req, ...prev]);
-      onShowToast('Erreur lors de l\'activation', 'error');
+      onShowToast(t('members_admin.activation_error'), 'error');
       setConfirmingId(null);
       return;
     }
@@ -152,9 +175,10 @@ const MemberManager = ({ onShowToast }: MemberManagerProps) => {
     await supabase
       .from('access_requests')
       .update({ status: 'confirmed', confirmed_at: new Date().toISOString() })
-      .eq('id', req.id);
+      .eq('id', req.id)
+      .eq('tenant_id', TENANT_ID);
 
-    onShowToast(`✓ Accès VIP activé pour @${req.member_username || req.member_telegram_id}`, 'success');
+    onShowToast(t('members_admin.vip_activated_for', { user: req.member_username || req.member_telegram_id }), 'success');
     setConfirmingId(null);
     fetchMembers();
   };
@@ -166,13 +190,14 @@ const MemberManager = ({ onShowToast }: MemberManagerProps) => {
     const { error } = await supabase
       .from('access_requests')
       .update({ status: 'rejected' })
-      .eq('id', req.id);
+      .eq('id', req.id)
+      .eq('tenant_id', TENANT_ID);
 
     if (error) {
       setPendingRequests(prev => [req, ...prev]);
-      onShowToast('Erreur lors du refus', 'error');
+      onShowToast(t('members_admin.rejection_error'), 'error');
     } else {
-      onShowToast('✗ Demande refusée', 'info');
+      onShowToast(t('members_admin.request_rejected'), 'info');
     }
     setRejectingId(null);
   };
@@ -194,8 +219,32 @@ const MemberManager = ({ onShowToast }: MemberManagerProps) => {
     return true;
   });
 
+  const activeMembers = members.filter(m => m.status === 'active').length;
+
+  const isMemberLimitReached = useMemo(() => {
+    if (!planFeatures.canAcceptNewMembers) return true;
+    if (planFeatures.membersUnlimited) return false;
+    return activeMembers >= planFeatures.maxMembers;
+  }, [activeMembers, planFeatures]);
+
+  const memberRequiredPlan = useMemo(() => {
+    if (planFeatures.plan === 'free') return 'basic';
+    if (planFeatures.plan === 'basic') return 'premium';
+    return 'empire';
+  }, [planFeatures.plan]);
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+
+      {/* ─── MEMBER QUOTA BANNER ─── */}
+      {!planFeatures.membersUnlimited && (
+        <QuotaBanner
+          used={activeMembers}
+          max={planFeatures.maxMembers}
+          label={t('members_admin.active_members')}
+          upgradeHint={t('members_admin.member_limit_reached_upgrade', { count: planFeatures.maxMembers })}
+        />
+      )}
 
       {/* ─── PENDING ACCESS REQUESTS ─── */}
       {pendingRequests.length > 0 && (
@@ -215,7 +264,7 @@ const MemberManager = ({ onShowToast }: MemberManagerProps) => {
               fontFamily: 'Space Mono, monospace', fontSize: 10,
               letterSpacing: '0.18em', color: '#FFD60A', textTransform: 'uppercase', fontWeight: 700,
             }}>
-              Demandes en attente ({pendingRequests.length})
+              {t('members_admin.pending_title', { count: pendingRequests.length })}
             </span>
           </div>
 
@@ -250,7 +299,7 @@ const MemberManager = ({ onShowToast }: MemberManagerProps) => {
                   {req.broker_name ? (
                     <><span>Broker: {req.broker_name}</span> · <span>ID: {req.broker_account_id}</span></>
                   ) : (
-                    <><span>Plan: {req.plan_label || '—'}</span> · <span>Montant: {req.amount ? `${req.amount} ${req.currency}` : '—'}</span></>
+                    <><span>Plan: {req.plan_label || '—'}</span> · <span>{t('members_admin.amount')}: {req.amount ? `${req.amount} ${req.currency}` : '—'}</span></>
                   )}
                 </div>
 
@@ -260,32 +309,49 @@ const MemberManager = ({ onShowToast }: MemberManagerProps) => {
                 </div>
 
                 {/* Actions */}
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    onClick={() => confirmRequest(req)}
-                    disabled={isConfirming || isRejecting}
-                    style={{
-                      flex: 1, padding: '7px 14px', fontSize: 10,
-                      fontFamily: 'Space Mono, monospace', fontWeight: 700, letterSpacing: '0.06em',
-                      background: 'rgba(0,255,65,0.1)', border: '1px solid rgba(0,255,65,0.25)',
-                      color: '#00FF41', borderRadius: 8, cursor: 'pointer',
-                      opacity: (isConfirming || isRejecting) ? 0.5 : 1,
-                    }}
-                  >
-                    {isConfirming ? '...' : '✓ CONFIRMER'}
-                  </button>
+                <div style={{
+                  display: 'flex',
+                  flexDirection: isMemberLimitReached ? 'column' : 'row',
+                  gap: 8,
+                  alignItems: 'stretch',
+                  width: '100%'
+                }}>
+                  {isMemberLimitReached ? (
+                    <LockedFeature
+                      currentPlan={planFeatures.plan}
+                      requiredPlan={memberRequiredPlan}
+                      featureName={t('locked_feature.more_members')}
+                      description={t('locked_feature.members_desc')}
+                      mode="replace"
+                      onUpgrade={onUpgrade}
+                    />
+                  ) : (
+                    <button
+                      onClick={() => confirmRequest(req)}
+                      disabled={isConfirming || isRejecting}
+                      style={{
+                        flex: 1, padding: '7px 14px', fontSize: 10,
+                        fontFamily: 'Space Mono, monospace', fontWeight: 700, letterSpacing: '0.06em',
+                        background: 'rgba(0,255,65,0.1)', border: '1px solid rgba(0,255,65,0.25)',
+                        color: '#00FF41', borderRadius: 8, cursor: 'pointer',
+                        opacity: (isConfirming || isRejecting) ? 0.5 : 1,
+                      }}
+                    >
+                      {isConfirming ? '...' : `✓ ${t('common.confirm')}`}
+                    </button>
+                  )}
                   <button
                     onClick={() => rejectRequest(req)}
                     disabled={isConfirming || isRejecting}
-                    style={{
-                      flex: 1, padding: '7px 14px', fontSize: 10,
+                      style={{
+                      flex: 1, width: '100%', padding: '7px 14px', fontSize: 10,
                       fontFamily: 'Space Mono, monospace', fontWeight: 700, letterSpacing: '0.06em',
                       background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.2)',
                       color: '#FF3B30', borderRadius: 8, cursor: 'pointer',
                       opacity: (isConfirming || isRejecting) ? 0.5 : 1,
                     }}
                   >
-                    {isRejecting ? '...' : '✗ REFUSER'}
+                    {isRejecting ? '...' : `✗ ${t('members_admin.refuse')}`}
                   </button>
                 </div>
               </div>
@@ -298,33 +364,33 @@ const MemberManager = ({ onShowToast }: MemberManagerProps) => {
       <GlassCard className="p-4 border-accent-emerald/20 shadow-[0_0_15px_rgba(0,255,150,0.05)]">
         <h3 className="text-[11px] font-black tracking-[0.2em] uppercase text-accent-emerald mb-4 flex items-center gap-2">
           <Users size={16} />
-          Filtres Membres
+          {t('members_admin.filters')}
         </h3>
         
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <label className="text-[10px] font-black tracking-widest uppercase text-text-secondary ml-1">Plan</label>
+            <label className="text-[10px] font-black tracking-widest uppercase text-text-secondary ml-1">{t('members_admin.plan')}</label>
             <select 
               value={filterPlan} 
               onChange={e => setFilterPlan(e.target.value)} 
               className="w-full bg-bg-void border border-border-subtle rounded-xl px-3 py-3 text-[11px] uppercase font-black text-text-primary focus:border-accent-emerald outline-none min-h-[44px]"
             >
-              <option value="ALL">Tous les plans</option>
+              <option value="ALL">{t('members_admin.all_plans')}</option>
               <option value="BASIC">Basic</option>
               <option value="VIP">VIP</option>
             </select>
           </div>
           <div className="space-y-1.5">
-            <label className="text-[10px] font-black tracking-widest uppercase text-text-secondary ml-1">Statut</label>
+            <label className="text-[10px] font-black tracking-widest uppercase text-text-secondary ml-1">{t('members_admin.status')}</label>
             <select 
               value={filterStatus} 
               onChange={e => setFilterStatus(e.target.value)} 
               className="w-full bg-bg-void border border-border-subtle rounded-xl px-3 py-3 text-[11px] uppercase font-black text-text-primary focus:border-accent-emerald outline-none min-h-[44px]"
             >
-              <option value="ALL">Tous les statuts</option>
-              <option value="pending">En attente</option>
-              <option value="active">Actif</option>
-              <option value="banned">Banni</option>
+              <option value="ALL">{t('members_admin.all_statuses')}</option>
+              <option value="pending">{t('common.pending')}</option>
+              <option value="active">{t('common.active')}</option>
+              <option value="banned">{t('common.banned')}</option>
             </select>
           </div>
         </div>
@@ -333,96 +399,140 @@ const MemberManager = ({ onShowToast }: MemberManagerProps) => {
       {/* MEMBERS LIST */}
       <div className="space-y-3">
         <h3 className="text-[10px] font-black tracking-widest uppercase text-text-secondary ml-1 mb-3 flex justify-between items-center">
-          <span>Liste des membres ({filteredMembers.length})</span>
-          {isLoading && <span className="text-accent-emerald animate-pulse">Chargement...</span>}
+          <span>{t('members_admin.members_list')} ({filteredMembers.length})</span>
+          {isLoading && <span className="text-accent-emerald animate-pulse">{t('common.loading')}</span>}
         </h3>
 
-        {filteredMembers.map(member => (
-          <GlassCard key={member.id} className="p-4 border-border-subtle/50 hover:border-accent-emerald/30 transition-colors">
-            
-            {/* Header: Name & Status */}
-            <div className="flex justify-between items-start mb-4 border-b border-border-subtle/30 pb-3">
-              <div className="flex flex-col">
-                <span className="font-bold text-sm tracking-tight text-white">
-                  {member.name || member.email || member.telegram_username || 'Utilisateur inconnu'}
-                </span>
-                <span className="text-[9px] text-text-muted font-mono mt-1">
-                  Inscrit le {new Date(member.created_at).toLocaleDateString()}
-                </span>
-              </div>
-              <Badge variant={member.status === 'active' ? 'neon' : member.status === 'pending' ? 'warning' : 'danger'} className="ml-2">
-                {member.status}
-              </Badge>
-            </div>
+        {filteredMembers.length > 0 ? (
+          <GlassCard className="border-border-subtle/40 overflow-hidden divide-y divide-border-subtle/15">
+            {filteredMembers.map(member => {
+              const memberName = member.name || member.email || member.telegram_username || t('members_admin.user_fallback');
+              const initial = memberName.charAt(0).toUpperCase();
+              const isBanned = member.status === 'banned';
+              const isPending = member.status === 'pending';
+              const isVip = member.is_vip;
 
-            {/* Plan & Access Settings */}
-            <div className="grid grid-cols-1 gap-3 mb-4">
-              <div className="flex items-center justify-between bg-bg-void/50 p-2.5 rounded-xl border border-border-subtle/30">
-                <span className="text-[10px] font-black tracking-widest uppercase text-text-secondary ml-1">Plan Global</span>
-                <select 
-                  value={member.is_vip ? 'VIP' : 'BASIC'} 
-                  onChange={e => updateMemberPlan(member.id, e.target.value === 'VIP')}
-                  className={`bg-bg-void border border-border-subtle rounded-lg px-2 py-1.5 text-[10px] font-black uppercase tracking-widest outline-none min-h-[36px] ${member.is_vip ? 'text-accent-gold border-accent-gold/50' : 'text-text-primary'}`}
-                >
-                  <option value="BASIC">BASIC</option>
-                  <option value="VIP">VIP</option>
-                </select>
-              </div>
-
-              <div className="flex gap-2">
-                <button 
-                  onClick={() => toggleAccess(member.id, 'has_signals_access', member.has_signals_access !== false)}
-                  className={`flex-1 flex flex-col items-center justify-center gap-1.5 py-2.5 rounded-xl border transition-all min-h-[48px] ${
-                    member.has_signals_access !== false 
-                      ? 'bg-accent-emerald/10 border-accent-emerald/30 text-accent-emerald' 
-                      : 'bg-bg-void border-border-subtle text-text-secondary'
+              return (
+                <div 
+                  key={member.id} 
+                  className={`flex items-center justify-between p-2.5 transition-colors ${
+                    isBanned ? 'bg-accent-red/5 opacity-60' : 'hover:bg-white/[0.01]'
                   }`}
                 >
-                  <Activity size={14} />
-                  <span className="text-[9px] font-black tracking-widest uppercase">Signaux</span>
-                </button>
-                <button 
-                  onClick={() => toggleAccess(member.id, 'has_academy_access', member.has_academy_access !== false)}
-                  className={`flex-1 flex flex-col items-center justify-center gap-1.5 py-2.5 rounded-xl border transition-all min-h-[48px] ${
-                    member.has_academy_access !== false 
-                      ? 'bg-accent-emerald/10 border-accent-emerald/30 text-accent-emerald' 
-                      : 'bg-bg-void border-border-subtle text-text-secondary'
-                  }`}
-                >
-                  <GraduationCap size={14} />
-                  <span className="text-[9px] font-black tracking-widest uppercase">Academy</span>
-                </button>
-              </div>
-            </div>
+                  {/* Left: Avatar + Identity */}
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 border uppercase ${
+                      isBanned 
+                        ? 'bg-accent-red/10 border-accent-red/20 text-accent-red' 
+                        : isVip 
+                          ? 'bg-accent-gold/10 border-accent-gold/20 text-accent-gold' 
+                          : 'bg-accent-emerald/10 border-accent-emerald/20 text-accent-emerald'
+                    }`}>
+                      {initial}
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className={`font-bold text-xs tracking-tight text-white truncate ${isBanned ? 'line-through text-text-muted' : ''}`}>
+                          {memberName}
+                        </span>
+                        {isBanned && (
+                          <span className="text-[7px] font-black tracking-widest uppercase px-1 py-0.5 rounded bg-accent-red/20 text-accent-red border border-accent-red/30 flex-shrink-0">
+                            BAN
+                          </span>
+                        )}
+                        {isPending && (
+                          <span className="text-[7px] font-black tracking-widest uppercase px-1 py-0.5 rounded bg-accent-orange/20 text-accent-orange border border-accent-orange/30 flex-shrink-0 animate-pulse">
+                            {t('common.pending')}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[8px] text-text-muted font-mono mt-0.5">
+                        {t('members_admin.registered_on', { date: new Date(member.created_at).toLocaleDateString() })}
+                      </span>
+                    </div>
+                  </div>
 
-            {/* Actions */}
-            <div className="flex gap-2 pt-1">
-              {member.status !== 'active' && (
-                <button 
-                  onClick={() => updateMemberStatus(member.id, 'active')} 
-                  className="flex-1 flex justify-center items-center gap-1.5 py-3 bg-accent-emerald text-bg-void rounded-xl text-[10px] font-black uppercase hover:shadow-[0_0_15px_rgba(0,255,150,0.3)] transition-all min-h-[44px]"
-                >
-                  <CheckCircle size={14} /> Approuver
-                </button>
-              )}
-              {member.status !== 'banned' && (
-                <button 
-                  onClick={() => updateMemberStatus(member.id, 'banned')} 
-                  className="flex-1 flex justify-center items-center gap-1.5 py-3 bg-bg-void text-accent-red border border-accent-red/30 rounded-xl text-[10px] font-black uppercase hover:bg-accent-red/10 transition-all min-h-[44px]"
-                >
-                  <Ban size={14} /> Bannir
-                </button>
-              )}
-            </div>
+                  {/* Right: Plan select + Toggles + Action button */}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {/* Plan dropdown (compact style) */}
+                    <select 
+                      value={member.is_vip ? 'VIP' : 'BASIC'} 
+                      onChange={e => updateMemberPlan(member.id, e.target.value === 'VIP')}
+                      className={`bg-bg-void border border-border-subtle/50 rounded-lg px-1.5 py-1 text-[9px] font-black uppercase outline-none min-h-[28px] ${
+                        member.is_vip ? 'text-accent-gold border-accent-gold/50' : 'text-text-secondary'
+                      }`}
+                    >
+                      <option value="BASIC">BASIC</option>
+                      <option value="VIP">VIP</option>
+                    </select>
 
+                    {/* Toggles */}
+                    <div className="flex gap-1">
+                      {/* Signaux Toggle */}
+                      <button 
+                        onClick={() => toggleAccess(member.id, 'has_signals_access', member.has_signals_access === true)}
+                        title={t('members_admin.signals_access')}
+                        className={`p-1.5 rounded-lg border transition-all ${
+                          member.has_signals_access === true 
+                            ? 'bg-accent-emerald/10 border-accent-emerald/40 text-accent-emerald' 
+                            : 'bg-bg-void border-border-subtle/30 text-text-muted opacity-40 hover:opacity-70'
+                        }`}
+                      >
+                        <Activity size={12} />
+                      </button>
+
+                      {/* Academy Toggle */}
+                      <button 
+                        onClick={() => toggleAccess(member.id, 'has_academy_access', member.has_academy_access === true)}
+                        title={t('members_admin.academy_access')}
+                        className={`p-1.5 rounded-lg border transition-all ${
+                          member.has_academy_access === true 
+                            ? 'bg-accent-emerald/10 border-accent-emerald/40 text-accent-emerald' 
+                            : 'bg-bg-void border-border-subtle/30 text-text-muted opacity-40 hover:opacity-70'
+                        }`}
+                      >
+                        <GraduationCap size={12} />
+                      </button>
+                    </div>
+
+                    {/* Actions: Bannir ou Approuver */}
+                    <div className="w-7 flex justify-center">
+                      {isPending ? (
+                        <button 
+                          onClick={() => updateMemberStatus(member.id, 'active')} 
+                          title={t('members_admin.approve')}
+                          className="p-1.5 bg-accent-emerald/20 text-accent-emerald border border-accent-emerald/30 rounded-lg hover:bg-accent-emerald/30 transition-all"
+                        >
+                          <CheckCircle size={12} />
+                        </button>
+                      ) : !isBanned ? (
+                        <button 
+                          onClick={() => updateMemberStatus(member.id, 'banned')} 
+                          title={t('members_admin.ban')}
+                          className="p-1.5 bg-accent-red/10 text-accent-red border border-accent-red/20 rounded-lg hover:bg-accent-red/20 transition-all"
+                        >
+                          <Ban size={12} />
+                        </button>
+                      ) : (
+                        <button 
+                          onClick={() => updateMemberStatus(member.id, 'active')} 
+                          title={t('members_admin.reactivate')}
+                          className="p-1.5 bg-accent-emerald/10 text-accent-emerald border border-accent-emerald/20 rounded-lg hover:bg-accent-emerald/20 transition-all"
+                        >
+                          <CheckCircle size={12} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </GlassCard>
-        ))}
-
-        {!isLoading && filteredMembers.length === 0 && (
+        ) : (
           <div className="text-center py-10 bg-bg-elevated/30 rounded-2xl border border-border-subtle/30 border-dashed">
             <Users size={24} className="mx-auto mb-3 text-text-secondary opacity-50" />
             <p className="text-[10px] text-text-secondary uppercase tracking-widest font-bold">
-              Aucun membre trouvé
+              {t('members_admin.no_members')}
             </p>
           </div>
         )}

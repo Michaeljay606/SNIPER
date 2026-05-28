@@ -2,8 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { Lock, Play, CheckCircle, GraduationCap } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { useTranslation } from 'react-i18next';
 
 export default function Academy() {
+  const { t } = useTranslation();
   const { tenant_id } = useOutletContext<any>();
   const [modules, setModules] = useState<any[]>([]);
   const [lessons, setLessons] = useState<any[]>([]);
@@ -34,13 +36,13 @@ export default function Academy() {
       <div className="glass-card p-4">
         <h1 className="text-2xl font-mono font-black uppercase italic tracking-tight mb-4 flex items-center gap-2">
           <GraduationCap className="text-[var(--accent-emerald)]" />
-          Academy
+          {t('academy.title')}
         </h1>
         
         <div className="space-y-2">
           <div className="flex justify-between text-[10px] font-bold tracking-widest uppercase">
-            <span className="text-[var(--text-secondary)]">Progression</span>
-            <span className="text-[var(--accent-emerald)]">{completedCount} / {totalCount} Leçons</span>
+            <span className="text-[var(--text-secondary)]">{t('academy.subtitle')}</span>
+            <span className="text-[var(--accent-emerald)]">{completedCount} / {totalCount} {t('academy.lessons')}</span>
           </div>
           <div className="h-1.5 bg-[var(--bg-elevated)] rounded-full overflow-hidden border border-[var(--border-subtle)]">
             <div className="h-full bg-[var(--accent-emerald)] transition-all duration-500" style={{ width: `${progressPercent}%` }} />
@@ -52,7 +54,7 @@ export default function Academy() {
       {modules.length === 0 && (
         <div className="text-center py-12 text-[var(--text-muted)] flex flex-col items-center">
           <GraduationCap size={32} className="mb-4 opacity-50" />
-          <p className="text-sm font-bold uppercase tracking-widest">Aucune leçon disponible</p>
+          <p className="text-sm font-bold uppercase tracking-widest">{t('academy.no_content')}</p>
         </div>
       )}
 
@@ -70,7 +72,7 @@ export default function Academy() {
               >
                 <div className="text-left">
                   <h3 className="text-sm font-bold tracking-wide">{mod.title}</h3>
-                  <p className="text-[10px] text-[var(--text-secondary)] tracking-wider mt-1 uppercase">{modLessons.length} leçons</p>
+                  <p className="text-[10px] text-[var(--text-secondary)] tracking-wider mt-1 uppercase">{modLessons.length} {t('academy.lessons')}</p>
                 </div>
                 <div className={`transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}>
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--text-muted)]"><polyline points="6 9 12 15 18 9"></polyline></svg>
@@ -87,8 +89,8 @@ export default function Academy() {
                         {isVipLocked && (
                           <div className="absolute inset-0 bg-[var(--bg-base)]/80 backdrop-blur-md z-10 flex flex-col items-center justify-center cursor-pointer hover:bg-[var(--bg-base)]/90 transition-colors">
                             <Lock className="text-[var(--accent-gold)] mb-2" size={24} />
-                            <span className="text-[10px] font-bold text-[var(--accent-gold)] tracking-widest uppercase mb-2">Contenu VIP</span>
-                            <span className="px-3 py-1.5 bg-[var(--accent-gold)]/20 text-[var(--accent-gold)] rounded-lg text-[10px] uppercase tracking-wider font-bold">Débloquer l'accès</span>
+                            <span className="text-[10px] font-bold text-[var(--accent-gold)] tracking-widest uppercase mb-2">{t('common.vip_badge')}</span>
+                            <span className="px-3 py-1.5 bg-[var(--accent-gold)]/20 text-[var(--accent-gold)] rounded-lg text-[10px] uppercase tracking-wider font-bold">{t('academy.unlock_btn')}</span>
                           </div>
                         )}
 
@@ -111,7 +113,7 @@ export default function Academy() {
                           </div>
                           
                           <div className="flex-1 flex flex-col justify-center">
-                            <span className="text-[9px] text-[var(--text-secondary)] font-mono mb-1 uppercase">Leçon {idx + 1}</span>
+                            <span className="text-[9px] text-[var(--text-secondary)] font-mono mb-1 uppercase">{t('academy.lessons')} {idx + 1}</span>
                             <h4 className="text-xs font-bold leading-tight mb-2 line-clamp-2">{lesson.title}</h4>
                             <div className="flex justify-between items-center mt-auto">
                               <span className={`text-[9px] font-bold tracking-widest uppercase px-1.5 py-0.5 rounded ${lesson.level === 'vip' ? 'bg-[var(--accent-gold)]/20 text-[var(--accent-gold)]' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)]'}`}>

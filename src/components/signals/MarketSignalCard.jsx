@@ -272,6 +272,22 @@ export default function MarketSignalCard({ signal }) {
           </div>
         </div>
 
+        {/* ─── Analysis Note ─── */}
+        {signal.analysis_note && (
+          <div style={{ marginTop: 12, marginBottom: 4 }}>
+            <p style={{
+              fontFamily: "var(--sans), sans-serif", fontSize: 11,
+              color: "rgba(255,255,255,0.7)", fontStyle: "italic",
+              margin: 0, padding: "8px 12px",
+              background: "rgba(255,255,255,0.02)", borderRadius: 8,
+              border: "1px solid rgba(255,255,255,0.05)",
+              lineHeight: 1.4,
+            }}>
+              💬 "{signal.analysis_note}"
+            </p>
+          </div>
+        )}
+
         {/* ─── Timestamp ─── */}
         <div style={{
           marginTop: 8, textAlign: "right",

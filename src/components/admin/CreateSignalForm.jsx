@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { useTradingMode } from "../../context/TradingModeContext";
 
@@ -150,22 +150,32 @@ function BinaryForm({ onSubmit, loading }) {
 export default function CreateSignalForm({ tenantId, onSuccess, onShowToast }) {
   const { tradingMode } = useTradingMode();
   const [loading, setLoading] = useState(false);
+  const submittingRef = useRef(false);
 
   const toast = (msg, type = "success") => {
     if (onShowToast) onShowToast(msg, type);
   };
 
   const handleSubmit = async (payload) => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setLoading(true);
     try {
       const { error } = await supabase.from("signals").insert({ ...payload, tenant_id: tenantId });
       if (error) throw error;
       toast("Signal publié avec succès !", "success");
-      if (onSuccess) onSuccess();
+      setLoading(false);
+      submittingRef.current = false;
+      if (onSuccess) window.setTimeout(onSuccess, 0);
     } catch (err) {
       toast(err.message || "Erreur lors de la publication", "error");
-    } finally {
       setLoading(false);
+      submittingRef.current = false;
+    } finally {
+      if (submittingRef.current) {
+        submittingRef.current = false;
+        setLoading(false);
+      }
     }
   };
 

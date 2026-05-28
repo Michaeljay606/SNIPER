@@ -2,8 +2,11 @@ import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { useConfig } from './context/ConfigContext';
 import { useUserRole } from './hooks/useUserRole';
-import MentorOnboarding from './components/onboarding/MentorOnboarding';
-import MemberOnboarding from './components/onboarding/MemberOnboarding';
+import { useTranslation } from 'react-i18next';
+
+// Lazy-loaded components for code-splitting
+const MentorOnboarding = lazy(() => import('./components/onboarding/MentorOnboarding'));
+const MemberOnboarding = lazy(() => import('./components/onboarding/MemberOnboarding'));
 
 // Lightweight fallback for React.Suspense
 function SuspenseFallback() {
@@ -11,9 +14,10 @@ function SuspenseFallback() {
 }
 
 // Custom Fallback Screens
-function EphataWelcome() {
+function SniperWelcome() {
   const [tenantId, setTenantId] = useState('');
   const navigate = useNavigate();
+  const { t } = useTranslation();
   return (
     <div className="min-h-screen bg-[#080B14] text-[#F0F0F0] font-sans flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm text-center space-y-8 animate-in fade-in duration-500">
@@ -25,18 +29,18 @@ function EphataWelcome() {
             SNIPER TERMINAL
           </h1>
           <p className="text-xs text-[rgba(255,255,255,0.4)] tracking-widest uppercase font-mono">
-            Ephata Tech Premium
+            {t('root.premium_label')}
           </p>
         </div>
         
         <div className="bg-white/[0.025] border border-white/[0.07] rounded-2xl p-6 space-y-4 shadow-xl">
           <div className="space-y-2 text-left">
             <label className="block font-mono text-[9px] tracking-[0.15em] text-[rgba(255,255,255,0.35)] uppercase">
-              Identifiant du Terminal
+              {t('root.terminal_id_label')}
             </label>
             <input
               type="text"
-              placeholder="Identifiant (ex: default)"
+              placeholder={t('root.terminal_id_placeholder')}
               value={tenantId}
               onChange={(e) => setTenantId(e.target.value.toLowerCase().trim())}
               className="w-full bg-black/40 border border-[rgba(255,255,255,0.08)] focus:border-[rgba(0,255,65,0.3)] rounded-[10px] px-4 py-3.5 text-sm text-white placeholder-gray-600 focus:outline-none transition-colors font-mono"
@@ -56,18 +60,18 @@ function EphataWelcome() {
                 : 'bg-[rgba(255,255,255,0.05)] text-[rgba(255,255,255,0.2)] cursor-not-allowed'
             }`}
           >
-            REJOINDRE LE TERMINAL →
+            {t('root.join_terminal')}
           </button>
         </div>
 
         <div className="pt-4 space-y-2">
           <a
-            href="https://sniper.ephatatech.com"
+            href={window.location.origin}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-block text-[10px] font-mono text-[rgba(255,255,255,0.3)] hover:text-white uppercase tracking-wider underline transition-colors"
           >
-            Créer mon propre terminal
+            {t('root.create_terminal')}
           </a>
         </div>
       </div>
@@ -77,6 +81,7 @@ function EphataWelcome() {
 
 function TenantNotFound() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   return (
     <div className="min-h-screen bg-[#080B14] text-[#F0F0F0] font-sans flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm text-center space-y-6">
@@ -87,17 +92,17 @@ function TenantNotFound() {
         </div>
         <div className="space-y-2">
           <h2 className="font-mono text-lg font-bold text-red-500 uppercase tracking-tight">
-            Terminal Introuvable
+            {t('root.tenant_not_found_title')}
           </h2>
           <p className="text-xs text-[rgba(255,255,255,0.45)] leading-relaxed max-w-[280px] mx-auto">
-            L'instance demandée n'existe pas ou l'adresse saisie est incorrecte.
+            {t('root.tenant_not_found_desc')}
           </p>
         </div>
         <button
           onClick={() => navigate('/')}
           className="w-full h-12 bg-white/5 border border-white/10 hover:bg-white/10 text-white rounded-xl font-mono text-xs font-bold uppercase tracking-wider transition-colors"
         >
-          Retour à l'accueil
+          {t('root.back_home')}
         </button>
       </div>
     </div>
@@ -105,6 +110,7 @@ function TenantNotFound() {
 }
 
 function LicenceSuspended() {
+  const { t } = useTranslation();
   return (
     <div className="min-h-screen bg-[#080B14] text-[#F0F0F0] font-sans flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm text-center space-y-6">
@@ -115,10 +121,10 @@ function LicenceSuspended() {
         </div>
         <div className="space-y-2">
           <h2 className="font-mono text-lg font-bold text-[#FFD60A] uppercase tracking-tight">
-            Terminal Suspendu
+            {t('root.suspended_title')}
           </h2>
           <p className="text-xs text-[rgba(255,255,255,0.45)] leading-relaxed max-w-[280px] mx-auto">
-            Les services de ce terminal de trading ont été suspendus par l'administrateur. Veuillez contacter le support.
+            {t('root.suspended_desc')}
           </p>
         </div>
       </div>
@@ -127,6 +133,7 @@ function LicenceSuspended() {
 }
 
 function BannedScreen() {
+  const { t } = useTranslation();
   return (
     <div className="min-h-screen bg-[#080B14] text-[#F0F0F0] font-sans flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm text-center space-y-6">
@@ -137,10 +144,10 @@ function BannedScreen() {
         </div>
         <div className="space-y-2">
           <h2 className="font-mono text-lg font-bold text-red-500 uppercase tracking-tight">
-            Accès Banni
+            {t('root.banned_title')}
           </h2>
           <p className="text-xs text-[rgba(255,255,255,0.45)] leading-relaxed max-w-[280px] mx-auto">
-            Votre accès à ce terminal a été suspendu pour non-respect des conditions d'utilisation.
+            {t('root.banned_desc')}
           </p>
         </div>
       </div>
@@ -150,11 +157,11 @@ function BannedScreen() {
 
 // Core Layouts & Components
 import SniperLogo from './assets/SniperLogo';
-import StudentShell from './layouts/StudentShell';
-import DashboardTab from './components/tabs/DashboardTab';
-import AcademyTab from './components/tabs/AcademyTab';
-import TerminalTab from './components/tabs/TerminalTab';
-import MasterControlPanel from './components/MasterControlPanel';
+const StudentShell = lazy(() => import('./layouts/StudentShell'));
+const DashboardTab = lazy(() => import('./components/tabs/DashboardTab'));
+const AcademyTab = lazy(() => import('./components/tabs/AcademyTab'));
+const TerminalTab = lazy(() => import('./components/tabs/TerminalTab'));
+const MasterControlPanel = lazy(() => import('./components/MasterControlPanel'));
 
 const PublicShell = lazy(() => import('./layouts/PublicShell'));
 
@@ -201,7 +208,7 @@ export default function App() {
 
   // Base Welcome Screen for root domain
   if (location.pathname === '/' || location.pathname === '') {
-    return <EphataWelcome />;
+    return <SniperWelcome />;
   }
 
   // Strict Rendering Order for App Routes

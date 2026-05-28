@@ -5,19 +5,29 @@ import { useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useClientConfig } from '../../../hooks/useClientConfig';
 import { triggerNotification } from '../../../lib/notifications';
+import type { PlanFeatures } from '../../../hooks/usePlanFeatures';
+import { QuotaBanner } from '../../ui/PlanGate';
+import LockedFeature from '../../LockedFeature';
+import { useTranslation } from 'react-i18next';
 
 interface SignalManagerProps {
   liveSignals: any[];
   setLiveSignals: React.Dispatch<React.SetStateAction<any[]>>;
   onShowToast: (msg: string, type: 'success' | 'error' | 'warning') => void;
+  planFeatures: PlanFeatures;
+  onUpgrade: () => void;
 }
 
 const BINARY_EXPIRATIONS = ['5s', '10s', '30s', 'M1', 'M2', 'M5', 'M15', 'M30'];
 
-const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManagerProps) => {
+const SignalManager = ({ liveSignals, setLiveSignals, onShowToast, planFeatures, onUpgrade }: SignalManagerProps) => {
+  const { t } = useTranslation();
   const { tenant_id } = useParams();
   const { config } = useClientConfig();
   const queryClient = useQueryClient();
+  const routeTenantId = tenant_id || 'default';
+  const [authenticatedTenantId, setAuthenticatedTenantId] = useState<string | null>(null);
+  const tid = authenticatedTenantId || routeTenantId;
   const tradingMode = (config?.tradingMode as 'forex' | 'binary' | 'both') ?? 'forex';
   const [activeForm, setActiveForm] = useState<'forex' | 'binary'>('forex');
   const binaryTerminology = config?.wallets?.binary_terminology || 'callput';
@@ -31,6 +41,19 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
       return true;
     });
   }, [liveSignals]);
+
+  const signalsCountToday = useMemo(() => {
+    return uniqueSignals.filter(s => {
+      const d = new Date(s.timestamp || s.created_at || 0);
+      const today = new Date(); today.setHours(0,0,0,0);
+      return d >= today;
+    }).length;
+  }, [uniqueSignals]);
+
+  const isSignalLimitReached = useMemo(() => {
+    if (planFeatures.signalsUnlimited) return false;
+    return signalsCountToday >= planFeatures.maxSignalsPerDay;
+  }, [signalsCountToday, planFeatures]);
 
   // Sync activeForm once config loads
   useEffect(() => {
@@ -50,8 +73,52 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
   // Initial fetch on mount to ensure fresh data
   useEffect(() => {
     refresh();
-  }, []);
+  }, [tid]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const resolveAuthenticatedTenant = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user?.id) {
+          if (!cancelled) setAuthenticatedTenantId(null);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('affiliates')
+          .select('tenant_id')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        const resolvedTenantId = data?.tenant_id || null;
+        if (!cancelled) {
+          setAuthenticatedTenantId(resolvedTenantId);
+        }
+
+        if (resolvedTenantId && resolvedTenantId !== routeTenantId) {
+          console.warn('SignalManager tenant mismatch resolved from authenticated user', {
+            routeTenantId,
+            resolvedTenantId,
+          });
+        }
+      } catch (error) {
+        console.error('SignalManager: unable to resolve authenticated tenant:', error);
+        if (!cancelled) setAuthenticatedTenantId(null);
+      }
+    };
+
+    resolveAuthenticatedTenant();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [routeTenantId]);
   const [loading, setLoading] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [pending, setPending] = useState<{ id: string; status: string; val: string } | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -125,8 +192,6 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
-  const tid = tenant_id || 'default';
-
   const refresh = async () => {
     try {
       const [activeRes, recentRes] = await Promise.all([
@@ -162,6 +227,39 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
       console.error('Refresh error:', e);
       onShowToast(`Erreur de sync: ${e.message || 'Inconnue'}`, 'error'); 
     }
+  };
+
+  const pushSignalOptimistically = (signal: any) => {
+    setLiveSignals(prev => {
+      const next = [signal, ...prev.filter(s => s.id !== signal.id)];
+      return next.sort((a, b) => {
+        const aTime = new Date(a.timestamp || a.created_at || 0).getTime();
+        const bTime = new Date(b.timestamp || b.created_at || 0).getTime();
+        return bTime - aTime;
+      });
+    });
+
+    ['both', 'binary', 'forex'].forEach(m => {
+      queryClient.setQueryData(['signals', tid, m], (old: any) => {
+        if (!Array.isArray(old)) return old;
+        if (m !== 'both' && m !== (signal.mode || 'forex')) return old;
+        return [signal, ...old.filter((s: any) => s.id !== signal.id)];
+      });
+    });
+  };
+
+  const updateSignalOptimistically = (id: string, patch: any) => {
+    setLiveSignals(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
+    ['both', 'binary', 'forex'].forEach(m => {
+      queryClient.setQueryData(['signals', tid, m], (old: any) => {
+        if (!Array.isArray(old)) return old;
+        return old.map((s: any) => s.id === id ? { ...s, ...patch } : s);
+      });
+    });
+  };
+
+  const runAfterPaint = (task: () => void) => {
+    window.setTimeout(task, 0);
   };
 
   const startEdit = (sig: any, forceLive: boolean = false) => {
@@ -219,19 +317,19 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
     });
 
     setUpdatingId(null);
-    onShowToast('Signal activé en LIVE avec succès !', 'success');
+    onShowToast(t('signals_admin.watch_activated_success', 'Signal activé en LIVE avec succès !'), 'success');
 
     // 2. Perform the database update asynchronously in the background
     try {
       const { error } = await supabase.from('signals').update({
         signal_type: 'LIVE',
         watch_activated_at: now
-      }).eq('id', id);
+      }).eq('id', id).eq('tenant_id', tid);
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: ['signals', tid] });
 
       // Trigger notification for watch signal activation
-      const { data: sigDetails } = await supabase.from('signals').select('*').eq('id', id).single();
+      const { data: sigDetails } = await supabase.from('signals').select('*').eq('id', id).eq('tenant_id', tid).single();
       if (sigDetails) {
         triggerNotification({
           type: 'new_signal',
@@ -254,17 +352,30 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
   };
 
   const submit = async () => {
+    if (isSubmittingRef.current) return;
+
     const modeValue = tradingMode === 'both' ? activeForm : tradingMode;
     const isWatch = signalType === 'WATCH';
     
-    if (!pair) return onShowToast('La paire est requise', 'warning');
+    if (!pair) return onShowToast(t('signals_admin.pair_required'), 'warning');
     if (isWatch) {
       const isBullish = direction === 'BUY' || direction === 'CALL';
-      if (isBullish && !entryLow) return onShowToast("Le prix d'entrée bas (support) est requis", 'warning');
-      if (!isBullish && !entryHigh) return onShowToast("Le prix d'entrée haut (résistance) est requis", 'warning');
+      if (isBullish && !entryLow) return onShowToast(t('signals_admin.entry_low_required'), 'warning');
+      if (!isBullish && !entryHigh) return onShowToast(t('signals_admin.entry_high_required'), 'warning');
     }
-    if (!isWatch && modeValue === 'forex' && !entry) return onShowToast('Le prix d\'entrée est requis pour le Forex', 'warning');
+    if (!isWatch && modeValue === 'forex' && !entry) return onShowToast(t('signals_admin.forex_entry_required'), 'warning');
+
+    // ── Daily signal quota check ──────────────────────────
+    if (!editingId && isSignalLimitReached) {
+      onShowToast(
+        `Limite de ${planFeatures.maxSignalsPerDay} signal${planFeatures.maxSignalsPerDay > 1 ? 's' : ''}/jour atteinte. Passez au plan Basic+.`,
+        'warning'
+      );
+      return;
+    }
+    // ─────────────────────────────────────────────────────
     
+    isSubmittingRef.current = true;
     setLoading(true);
     
     const payload: any = {
@@ -304,28 +415,33 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
 
     try {
       if (editingId) {
-        const { error } = await supabase.from('signals').update(payload).eq('id', editingId);
+        const { error } = await supabase.from('signals').update(payload).eq('id', editingId).eq('tenant_id', tid);
         if (error) throw error;
-        onShowToast('Signal mis à jour !', 'success');
+        updateSignalOptimistically(editingId, payload);
+        onShowToast(t('signals_admin.signal_updated', 'Signal mis à jour !'), 'success');
         setEditingId(null);
       } else {
         payload.timestamp = new Date().toISOString();
-        const { data, error } = await supabase.from('signals').insert(payload).select('id').single();
+        const { data, error } = await supabase.from('signals').insert(payload).select('*').single();
         if (error) throw error;
-        onShowToast(isWatch ? 'Zone d\'alerte publiée !' : 'Signal publié !', 'success');
+        const publishedSignal = data || payload;
+        pushSignalOptimistically(publishedSignal);
+        onShowToast(isWatch ? t('signals_admin.signal_published') : t('signals_admin.signal_published'), 'success');
 
-        if (signalType === 'LIVE' && data) {
-          triggerNotification({
-            type: 'new_signal',
-            tenant_id: tid,
-            target_type: isVip ? 'vip_members' : 'all_members',
-            data: {
-              signal_id: data.id,
-              pair: pair.toUpperCase(),
-              type: direction,
-              direction: direction,
-              is_vip: isVip,
-            }
+        if (signalType === 'LIVE' && publishedSignal?.id) {
+          runAfterPaint(() => {
+            triggerNotification({
+              type: 'new_signal',
+              tenant_id: tid,
+              target_type: isVip ? 'vip_members' : 'all_members',
+              data: {
+                signal_id: publishedSignal.id,
+                pair: pair.toUpperCase(),
+                type: direction,
+                direction: direction,
+                is_vip: isVip,
+              }
+            }).catch(err => console.error('Signal notification failed:', err));
           });
         }
       }
@@ -334,9 +450,14 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
       setTpCount(1);
       setShowNoteInput(false);
       queryClient.invalidateQueries({ queryKey: ['signals', tid] });
-      await refresh();
+      runAfterPaint(() => {
+        refresh().catch(err => console.error('Signal refresh failed:', err));
+      });
     } catch (e: any) { onShowToast(e.message, 'error'); }
-    finally { setLoading(false); }
+    finally {
+      isSubmittingRef.current = false;
+      setLoading(false);
+    }
   };
 
   const updateBinaryTerminology = async (terminology: 'callput' | 'updown') => {
@@ -409,12 +530,12 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
 
     // 2. Perform the database update asynchronously in the background
     try {
-      const { error } = await supabase.from('signals').update({ status, rr }).eq('id', id);
+      const { error } = await supabase.from('signals').update({ status, rr }).eq('id', id).eq('tenant_id', tid);
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: ['signals', tid] });
 
       // Trigger notification for status changes
-      const { data: sigDetails } = await supabase.from('signals').select('*').eq('id', id).single();
+      const { data: sigDetails } = await supabase.from('signals').select('*').eq('id', id).eq('tenant_id', tid).single();
       if (sigDetails) {
         let notifType = '';
         if (status === 'tp') notifType = 'signal_tp_hit';
@@ -462,14 +583,87 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
         color: isBin ? 'rgba(139,92,246,0.7)' : 'rgba(0,255,65,0.7)'
       }}>
         {isBin ? <Target size={12} /> : <Zap size={12} />}
-        {isBin ? 'MODE OPTION BINAIRE' : 'MODE FOREX / CRYPTO'}
+        {isBin ? t('signals_admin.term_binary_callput') : t('signals_admin.term_forex_crypto')}
       </div>
     );
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      
+
+      {/* ─── DAILY QUOTA BANNER ─── */}
+      {!planFeatures.signalsUnlimited && !planFeatures.isPaused && (
+        <QuotaBanner
+          used={uniqueSignals.filter(s => {
+            const d = new Date(s.timestamp || s.created_at || 0);
+            const today = new Date(); today.setHours(0,0,0,0);
+            return d >= today;
+          }).length}
+          max={planFeatures.maxSignalsPerDay}
+          label="Signaux aujourd'hui"
+          upgradeHint="Limite atteinte — passez au plan Basic+ pour des signaux illimités."
+        />
+      )}
+
+      {/* ─── PAUSE: Replace entire form with locked card ─── */}
+      {planFeatures.isPaused ? (
+        <div style={{
+          borderRadius: 16,
+          background: 'linear-gradient(145deg, rgba(255,59,48,0.05) 0%, rgba(8,11,20,0.7) 100%)',
+          border: '1px dashed rgba(255,59,48,0.35)',
+          padding: '36px 24px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 14,
+          textAlign: 'center',
+        }}>
+          <div style={{
+            width: 52, height: 52, borderRadius: '50%',
+            background: 'rgba(255,59,48,0.08)',
+            border: '1px solid rgba(255,59,48,0.25)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 22,
+            boxShadow: '0 0 24px rgba(255,59,48,0.15)',
+          }}>
+            ⏸
+          </div>
+          <div>
+            <div style={{ fontFamily: 'Space Mono, monospace', fontSize: 12, fontWeight: 700, color: '#FF3B30', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>
+              {t('signals_admin.publishing_suspended')}
+            </div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.65, maxWidth: 280 }}>
+              {t('admin.locked_desc')}
+            </div>
+          </div>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            background: 'rgba(255,59,48,0.08)',
+            border: '1px solid rgba(255,59,48,0.25)',
+            borderRadius: 99, padding: '4px 12px',
+            fontFamily: 'Space Mono, monospace', fontSize: 9, fontWeight: 700,
+            color: '#FF3B30', letterSpacing: '0.1em',
+          }}>
+            {t('admin.pause_active', "⏸ PLAN PAUSE ACTIF")}
+          </div>
+          <button
+            type="button"
+            onClick={onUpgrade}
+            style={{
+              marginTop: 4, padding: '10px 24px', borderRadius: 24,
+              background: 'linear-gradient(135deg, rgba(0,255,65,0.15) 0%, rgba(0,255,65,0.05) 100%)',
+              border: '1px solid rgba(0,255,65,0.35)',
+              color: '#00FF41',
+              fontFamily: 'Space Mono, monospace', fontSize: 10, fontWeight: 700,
+              cursor: 'pointer', letterSpacing: '0.1em',
+              boxShadow: '0 4px 20px rgba(0,255,65,0.12)',
+            }}
+          >
+            {t('admin.reactivate_cta')}
+          </button>
+        </div>
+      ) : (
+        <>
       {/* ─── MODE SELECTOR / BADGE ─── */}
       {tradingMode === 'both' ? (
         <div style={{ display: 'flex', background: 'rgba(0,0,0,0.5)', border: '1px solid var(--subtle)', borderRadius: 50, padding: 3, marginBottom: 10 }}>
@@ -570,7 +764,7 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <label style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: 'var(--green)', margin: 0 }}>
-                      ⏳ PRIX OU HEURE D'ENTRÉE ({activeForm === 'binary' ? (binaryTerminology === 'updown' ? 'UP' : 'CALL') : 'BUY'})
+                      {t('signals_admin.entry_price_or_time')} ({activeForm === 'binary' ? (binaryTerminology === 'updown' ? 'UP' : 'CALL') : 'BUY'})
                     </label>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button type="button" onClick={() => { setEntryLow('MKT'); setEntryHigh(''); }} style={{ background: entryLow === 'MKT' ? 'rgba(0,255,65,0.15)' : 'rgba(255,255,255,0.02)', border: entryLow === 'MKT' ? '1px solid rgba(0,255,65,0.3)' : '1px solid transparent', borderRadius: 4, color: entryLow === 'MKT' ? 'var(--green)' : 'var(--muted)', fontSize: 8, cursor: 'pointer', fontWeight: 800, padding: '2px 6px', fontFamily: 'var(--mono)', transition: 'all 0.15s' }}>MKT</button>
@@ -601,7 +795,7 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <label style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: 'var(--red)', margin: 0 }}>
-                      ⏳ PRIX OU HEURE D'ENTRÉE ({activeForm === 'binary' ? (binaryTerminology === 'updown' ? 'DOWN' : 'PUT') : 'SELL'})
+                      {t('signals_admin.entry_price_or_time')} ({activeForm === 'binary' ? (binaryTerminology === 'updown' ? 'DOWN' : 'PUT') : 'SELL'})
                     </label>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button type="button" onClick={() => { setEntryHigh('MKT'); setEntryLow(''); }} style={{ background: entryHigh === 'MKT' ? 'rgba(255,59,48,0.15)' : 'rgba(255,255,255,0.02)', border: entryHigh === 'MKT' ? '1px solid rgba(255,59,48,0.3)' : '1px solid transparent', borderRadius: 4, color: entryHigh === 'MKT' ? 'var(--red)' : 'var(--muted)', fontSize: 8, cursor: 'pointer', fontWeight: 800, padding: '2px 6px', fontFamily: 'var(--mono)', transition: 'all 0.15s' }}>MKT</button>
@@ -1059,10 +1253,10 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
           </div>
 
           <div style={{ gridColumn: 'span 2', marginTop: 4 }}>
-            <label style={{ display: 'block', fontSize: 9, color: 'var(--muted)', marginBottom: 6, fontWeight: 700, textTransform: 'uppercase' }}>ACCÈS DU SIGNAL</label>
+            <label style={{ display: 'block', fontSize: 9, color: 'var(--muted)', marginBottom: 6, fontWeight: 700, textTransform: 'uppercase' }}>{t('signals_admin.signal_access')}</label>
             <div style={{ display: 'flex', gap: 8, background: 'rgba(0,0,0,0.4)', borderRadius: 10, padding: 4 }}>
               <button type="button" onClick={() => setIsVip(false)} style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', background: !isVip ? 'rgba(0,255,65,0.15)' : 'transparent', color: !isVip ? 'var(--green)' : 'var(--muted)', fontSize: 11, fontFamily: 'var(--mono)', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}>
-                GRATUIT
+                {t('common.gratuit')}
               </button>
               <button type="button" onClick={() => setIsVip(true)} style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', background: isVip ? 'rgba(255,214,10,0.15)' : 'transparent', color: isVip ? '#FFD60A' : 'var(--muted)', fontSize: 11, fontFamily: 'var(--mono)', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}>
                 VIP 🔐
@@ -1071,29 +1265,42 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={submit} disabled={loading} style={{
-            flex: 1, padding: '14px', borderRadius: 12, border: 'none',
-            background: loading ? 'var(--subtle)' : (signalType === 'WATCH' ? 'var(--amber)' : 'var(--green)'),
-            color: '#000', fontFamily: 'var(--mono)', fontWeight: 800, fontSize: 13, textTransform: 'uppercase', cursor: 'pointer', transition: 'all 0.2s',
-            boxShadow: loading ? 'none' : (signalType === 'WATCH' ? '0 4px 15px rgba(255,178,0,0.25)' : '0 4px 15px rgba(0,255,65,0.2)')
-          }}>
-            {loading ? <Loader2 className="animate-spin" style={{ margin: '0 auto' }} /> : (editingId ? 'ENREGISTRER' : signalType === 'WATCH' ? '⏳ PUBLIER ZONE D\'ALERTE' : '⚡ PUBLIER LE SIGNAL')}
-          </button>
+        <div style={{ display: 'flex', gap: 10, width: '100%' }}>
+          {(isSignalLimitReached || planFeatures.isPaused) ? (
+            <LockedFeature
+              currentPlan={planFeatures.plan}
+              requiredPlan={planFeatures.isPaused ? 'basic' : 'basic'}
+              featureName={planFeatures.isPaused ? 'Publication suspendue' : 'Signaux Illimités'}
+              description={planFeatures.isPaused ? 'Réactivez votre plan pour publier à nouveau.' : '3 signaux/jour sur Free. Illimité dès Basic.'}
+              mode="replace"
+              onUpgrade={onUpgrade}
+            />
+          ) : (
+            <button onClick={submit} disabled={loading} style={{
+              flex: 1, padding: '14px', borderRadius: 12, border: 'none',
+              background: loading ? 'var(--subtle)' : (signalType === 'WATCH' ? 'var(--amber)' : 'var(--green)'),
+              color: '#000', fontFamily: 'var(--mono)', fontWeight: 800, fontSize: 13, textTransform: 'uppercase', cursor: 'pointer', transition: 'all 0.2s',
+              boxShadow: loading ? 'none' : (signalType === 'WATCH' ? '0 4px 15px rgba(255,178,0,0.25)' : '0 4px 15px rgba(0,255,65,0.2)')
+            }}>
+              {loading ? <Loader2 className="animate-spin" style={{ margin: '0 auto' }} /> : (editingId ? t('common.save') : signalType === 'WATCH' ? t('signals_admin.publish_alert_zone') : t('signals_admin.publish_signal'))}
+            </button>
+          )}
           
           {editingId && (
             <button onClick={cancelEdit} style={{ padding: '14px 20px', borderRadius: 12, border: '1px solid rgba(255,59,48,0.3)', background: 'rgba(255,59,48,0.1)', color: 'var(--red)', cursor: 'pointer' }}>
-              ANNULER
+              {t('common.cancel')}
             </button>
           )}
         </div>
       </div>
+        </>
+      )}
 
       {/* ─── WATCH SIGNALS ─── */}
       {displaySignals.filter(s => s.signal_type === 'WATCH' && s.status === 'active').length > 0 && (
         <div style={{ paddingTop: 16, borderTop: '1px solid rgba(255,178,0,0.2)' }}>
           <p style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--amber)', textTransform: 'uppercase', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-            ⏳ ZONES EN SURVEILLANCE ({displaySignals.filter(s => s.signal_type === 'WATCH' && s.status === 'active').length})
+            {t('signals_admin.watch_zones_count', { count: displaySignals.filter(s => s.signal_type === 'WATCH' && s.status === 'active').length })}
           </p>
           {displaySignals.filter(s => s.signal_type === 'WATCH' && s.status === 'active').map(sig => (
             <div key={sig.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', marginBottom: 8, borderRadius: 12, background: 'rgba(255,178,0,0.05)', border: '1px solid rgba(255,178,0,0.2)' }}>
@@ -1123,7 +1330,7 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
       {/* ─── LIVE MANAGEMENT ─── */}
       <div style={{ paddingTop: 16, borderTop: '1px solid var(--subtle)' }}>
         <p style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.15em', color: 'rgba(255,255,255,0.2)', textTransform: 'uppercase', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Activity size={11} /> HISTORIQUE RÉCENT ({displaySignals.filter(s => s.signal_type !== 'WATCH').length})
+          <Activity size={11} /> {t('signals_admin.history_recent', { count: displaySignals.filter(s => s.signal_type !== 'WATCH').length })}
         </p>
 
         {displaySignals
@@ -1144,6 +1351,8 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
           const isLoading = updatingId === sig.id;
           const isBin = (sig.mode || 'forex') === 'binary';
           const isActive = ['active', 'tp1_hit', 'tp2_hit'].includes(sig.status);
+          const tps = (sig.tp || '').split(',').map((t: string) => t.trim()).filter(Boolean);
+          const numTps = tps.length;
 
           return (
             <div key={sig.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: (sig.status === 'tp' || sig.status === 'sl' || sig.status === 'cancelled') ? 0.6 : 1 }}>
@@ -1176,7 +1385,7 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
                 isPending ? (
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     <span style={{ fontSize: 9, fontFamily: 'var(--mono)', color: pending.status.includes('sl') ? 'var(--red)' : 'var(--green)', fontWeight: 800 }}>
-                      {pending.status === 'tp1_hit' ? 'TP1 :' : pending.status === 'tp2_hit' ? 'TP2 :' : pending.status === 'tp' ? 'CLÔTURE :' : 'SL :'}
+                      {pending.status === 'tp1_hit' ? 'TP1 :' : pending.status === 'tp2_hit' ? 'TP2 :' : pending.status === 'tp' ? (numTps <= 1 ? 'TP :' : `TP${numTps} :`) : 'SL :'}
                     </span>
                     <input value={pending.val} onChange={e => setPending({ ...pending, val: e.target.value })} placeholder={isBin ? '$ Gain' : 'Pips'} style={{ width: 60, background: 'rgba(0,0,0,0.4)', border: '1px solid var(--green)', borderRadius: 6, fontSize: 10, padding: 6, color: '#fff' }} />
                     <button onClick={() => updateStatus(sig.id, pending.status, pending.val)} style={{ padding: 8, background: 'var(--green)', border: 'none', borderRadius: 6 }}><Check size={12} /></button>
@@ -1187,50 +1396,78 @@ const SignalManager = ({ liveSignals, setLiveSignals, onShowToast }: SignalManag
                     <button onClick={() => startEdit(sig)} style={{ padding: 8, background: 'rgba(255,255,255,0.05)', borderRadius: 6, border: 'none', color: 'var(--muted)' }}><Activity size={12} /></button>
                     {!isBin ? (
                       <>
-                        <button
-                          onClick={() => {
-                            if (sig.status === 'tp1_hit' || sig.status === 'tp2_hit') {
-                              updateStatus(sig.id, 'active', '');
-                            } else {
-                              setPending({ id: sig.id, status: 'tp1_hit', val: sig.rr || '' });
-                            }
-                          }}
-                          style={{
-                            padding: '6px 8px',
-                            background: (sig.status === 'tp1_hit' || sig.status === 'tp2_hit') ? 'rgba(0,255,65,0.25)' : 'rgba(0,255,65,0.08)',
-                            color: 'var(--green)',
-                            border: (sig.status === 'tp1_hit' || sig.status === 'tp2_hit') ? '1px solid var(--green)' : 'none',
-                            borderRadius: 6,
-                            fontSize: 9,
-                            fontWeight: 700,
-                            cursor: 'pointer'
-                          }}
-                        >
-                          TP1
-                        </button>
-                        
-                        <button
-                          onClick={() => {
-                            if (sig.status === 'tp2_hit') {
-                              updateStatus(sig.id, 'tp1_hit', sig.rr || '');
-                            } else {
-                              setPending({ id: sig.id, status: 'tp2_hit', val: sig.rr || '' });
-                            }
-                          }}
-                          style={{
-                            padding: '6px 8px',
-                            background: sig.status === 'tp2_hit' ? 'rgba(0,255,65,0.25)' : 'rgba(0,255,65,0.08)',
-                            color: 'var(--green)',
-                            border: sig.status === 'tp2_hit' ? '1px solid var(--green)' : 'none',
-                            borderRadius: 6,
-                            fontSize: 9,
-                            fontWeight: 700,
-                            cursor: 'pointer'
-                          }}
-                        >
-                          TP2
-                        </button>
-                        <button onClick={() => setPending({ id: sig.id, status: 'tp', val: '' })} style={{ padding: '6px 8px', background: 'rgba(0,255,65,0.15)', color: '#00FF41', border: '1px solid rgba(0,255,65,0.3)', borderRadius: 6, fontSize: 9, fontWeight: 800, cursor: 'pointer' }}>CLÔTURE</button>
+                        {tps.map((tpVal, idx) => {
+                          const isLast = idx === numTps - 1;
+                          const tpNum = idx + 1;
+                          
+                          if (isLast) {
+                            return (
+                              <button
+                                key={idx}
+                                onClick={() => setPending({ id: sig.id, status: 'tp', val: sig.rr || '' })}
+                                style={{
+                                  padding: '6px 8px',
+                                  background: 'rgba(0,255,65,0.08)',
+                                  color: 'var(--green)',
+                                  border: 'none',
+                                  borderRadius: 6,
+                                  fontSize: 9,
+                                  fontWeight: 700,
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                {numTps <= 1 ? 'TP' : `TP${tpNum}`}
+                              </button>
+                            );
+                          } else {
+                            const targetStatus = `tp${tpNum}_hit`;
+                            const isActiveState = sig.status === targetStatus || 
+                                                  (sig.status === 'tp2_hit' && targetStatus === 'tp1_hit');
+                            
+                            return (
+                              <button
+                                key={idx}
+                                onClick={() => {
+                                  if (isActiveState) {
+                                    const prevStatus = tpNum === 2 ? 'tp1_hit' : 'active';
+                                    updateStatus(sig.id, prevStatus, sig.rr || '');
+                                  } else {
+                                    setPending({ id: sig.id, status: targetStatus, val: sig.rr || '' });
+                                  }
+                                }}
+                                style={{
+                                  padding: '6px 8px',
+                                  background: isActiveState ? 'rgba(0,255,65,0.25)' : 'rgba(0,255,65,0.08)',
+                                  color: 'var(--green)',
+                                  border: isActiveState ? '1px solid var(--green)' : 'none',
+                                  borderRadius: 6,
+                                  fontSize: 9,
+                                  fontWeight: 700,
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                TP{tpNum}
+                              </button>
+                            );
+                          }
+                        })}
+                        {numTps === 0 && (
+                          <button
+                            onClick={() => setPending({ id: sig.id, status: 'tp', val: '' })}
+                            style={{
+                              padding: '6px 12px',
+                              background: 'rgba(0,255,65,0.08)',
+                              color: 'var(--green)',
+                              border: 'none',
+                              borderRadius: 6,
+                              fontSize: 9,
+                              fontWeight: 700,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            TP
+                          </button>
+                        )}
                       </>
                     ) : (
                       <button onClick={() => setPending({ id: sig.id, status: 'tp', val: '' })} style={{ padding: '6px 12px', background: 'rgba(0,255,65,0.1)', color: 'var(--green)', border: 'none', borderRadius: 6, fontSize: 9, cursor: 'pointer' }}>TP</button>

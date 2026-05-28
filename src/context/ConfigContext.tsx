@@ -79,6 +79,11 @@ export interface ClientConfig {
   vip_currency: string;
   ton_payment_enabled: boolean;
   ton_wallet: string;
+  hideSniperBadge: boolean;
+  referral_code: string;
+  referred_by: string | null;
+  referral_count: number;
+  credit_balance: number;
 }
 
 const DEFAULT_CONFIG: ClientConfig = {
@@ -136,6 +141,11 @@ const DEFAULT_CONFIG: ClientConfig = {
   vip_currency: 'USDT',
   ton_payment_enabled: false,
   ton_wallet: '',
+  hideSniperBadge: true,
+  referral_code: '',
+  referred_by: null,
+  referral_count: 0,
+  credit_balance: 0,
 };
 
 interface ConfigContextType {
@@ -167,24 +177,47 @@ const applyTheme = (mode: string, themeColor: string) => {
   root.style.setProperty('--border-active', activeBorder);
 };
 
-const rowToConfig = (row: any): ClientConfig => ({
+const normalizePlan = (raw: string | null | undefined): ClientConfig['plan'] => {
+  if (raw === 'free' || raw === 'basic' || raw === 'premium' || raw === 'empire' || raw === 'pause' || raw === 'legacy') {
+    return raw;
+  }
+  return 'free';
+};
+
+const normalizeTradingMode = (rawMode: string | null | undefined, plan: ClientConfig['plan']): ClientConfig['tradingMode'] => {
+  const raw = (rawMode || 'forex').toUpperCase();
+  const requested = raw === 'BINARY' ? 'binary' : raw === 'BOTH' ? 'both' : 'forex';
+
+  if (requested === 'both') return plan === 'empire' ? 'both' : 'forex';
+  if (requested === 'binary') return plan === 'premium' || plan === 'empire' ? 'binary' : 'forex';
+  return 'forex';
+};
+
+const rowToConfig = (row: any): ClientConfig => {
+  const plan = normalizePlan(row.plan);
+  const canUseTon = plan === 'premium' || plan === 'empire';
+  const canHideBadge = plan === 'premium' || plan === 'empire';
+  const canWhiteLabel = plan === 'empire';
+  const canUsePayment = plan === 'free' || plan === 'basic' || plan === 'premium' || plan === 'empire';
+  const canUseBothAccess = plan === 'premium' || plan === 'empire';
+  const vipModel = (row.vip_model as 'payment' | 'broker' | 'both') || 'broker';
+  const academyModel = row.academy_model === 'free'
+    ? 'payment'
+    : ((row.academy_model as 'payment' | 'broker' | 'both') || 'payment');
+
+  return ({
   mentorName: row.mentor_name || 'Mentor',
   mentorPhotoUrl: row.mentor_photo_url || '',
-  themeColor: row.theme_color || '#00FF41',
+  themeColor: canWhiteLabel ? (row.theme_color || '#00FF41') : '#00FF41',
   licenceStatus: row.licence_status || 'active',
-  plan: row.plan || 'empire',
+  plan,
   maxMembers: row.max_members || 1000,
   onboardingCompleted: row.onboarding_completed ?? true,
   onboardingStep: row.onboarding_step || 4,
   wallets: row.wallets || {},
   signalsDurationModel: row.signals_duration_model || 'flexible',
   academyDurationModel: row.academy_duration_model || 'flexible',
-  tradingMode: (() => {
-    const raw = (row.trading_mode || 'forex').toUpperCase();
-    if (raw === 'BINARY') return 'binary';
-    if (raw === 'BOTH') return 'both';
-    return 'forex'; // 'MARKETS', 'forex', or anything else
-  })() as 'forex' | 'binary' | 'both',
+  tradingMode: normalizeTradingMode(row.trading_mode, plan),
   trialEndsAt: row.trial_ends_at || null,
   // Branding images — ALL included so they survive refresh
   logo_url: row.logo_url || '',
@@ -221,12 +254,12 @@ const rowToConfig = (row: any): ClientConfig => ({
   elite_tag: row.elite_tag || '',
   // Permissions
   telegramId: row.telegram_id ? Number(row.telegram_id) : null,
-  vipModel: (row.vip_model as 'payment' | 'broker' | 'both') || 'payment',
-  academy_model: (() => {
-    const m = row.academy_model;
-    if (m === 'free') return 'payment';
-    return (m as 'payment' | 'broker' | 'both') || 'payment';
-  })(),
+  vipModel: canUseBothAccess || vipModel !== 'both'
+    ? (canUsePayment ? vipModel : 'broker')
+    : 'payment',
+  academy_model: canUseBothAccess || academyModel !== 'both'
+    ? (canUsePayment ? academyModel : 'broker')
+    : 'payment',
   academy_price_1m: row.academy_price_1m || '',
   academy_price_lifetime: row.academy_price_lifetime || '',
   academy_duration_model: row.academy_duration_model || 'monthly',
@@ -235,9 +268,15 @@ const rowToConfig = (row: any): ClientConfig => ({
   vip_price_lifetime: row.vip_price_lifetime || '',
   signals_duration_model: row.signals_duration_model || 'monthly',
   vip_currency: row.vip_currency || 'USDT',
-  ton_payment_enabled: !!row.ton_payment_enabled,
-  ton_wallet: row.ton_wallet || '',
-});
+  ton_payment_enabled: canUseTon ? !!row.ton_payment_enabled : false,
+  ton_wallet: canUseTon ? (row.ton_wallet || '') : '',
+  hideSniperBadge: canHideBadge ? row.hide_sniper_badge !== false : false,
+  referral_code: row.referral_code || '',
+  referred_by: row.referred_by || null,
+  referral_count: Number(row.referral_count || 0),
+  credit_balance: Number(row.credit_balance || 0),
+  });
+};
 
 export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [bootAnimDone, setBootAnimDone] = useState(false);

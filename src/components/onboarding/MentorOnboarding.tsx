@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '../../lib/supabase';
 import { TENANT_ID } from '../../config';
 import { ClientConfig } from '../../context/ConfigContext';
@@ -12,6 +13,7 @@ interface MentorOnboardingProps {
 }
 
 export default function MentorOnboarding({ config, onComplete }: MentorOnboardingProps) {
+  const { t } = useTranslation();
   const [step, setStep] = useState(1);
   const [speciality, setSpeciality] = useState(config.speciality || '');
   const [yearsExp, setYearsExp] = useState(config.years_exp || '');
@@ -271,7 +273,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
         {/* Progress header */}
         <div className="flex justify-between items-center px-2 shrink-0">
           <span className="font-mono text-[9px] text-[rgba(255,255,255,0.3)] tracking-widest uppercase">
-            {step === 1 ? 'Activation' : step === 2 ? 'Configuration' : step === 3 ? 'Accès & Tarifs' : 'Déploiement'}
+            {step === 1 ? t('onboarding.step1', 'Activation') : step === 2 ? t('onboarding.step2', 'Configuration') : step === 3 ? t('onboarding.step3', 'Accès & Tarifs') : t('onboarding.step4', 'Déploiement')}
           </span>
           <div className="flex items-center gap-2">
             {[1, 2, 3, 4].map((s) => (
@@ -311,10 +313,10 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                 {/* Header */}
                 <div className="text-center space-y-1">
                   <h1 className="text-xl font-bold text-white tracking-tight">
-                    Identité du Terminal
+                    {t('onboarding.terminal_identity', 'Identité du Terminal')}
                   </h1>
                   <p className="text-xs text-[rgba(255,255,255,0.45)]">
-                    Configurez l'image de profil et le nom de votre terminal.
+                    {t('onboarding.terminal_identity_desc', 'Configurez l\'image de profil et le nom de votre terminal.')}
                   </p>
                 </div>
 
@@ -326,7 +328,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                       {isUploading ? (
                         <div className="flex flex-col items-center justify-center space-y-1 text-center">
                           <span className="w-5 h-5 rounded-full border-2 border-[#00FF41] border-t-transparent animate-spin" />
-                          <span className="font-mono text-[7px] text-[#00FF41] tracking-wider uppercase">ENVOI...</span>
+                          <span className="font-mono text-[7px] text-[#00FF41] tracking-wider uppercase">{t('onboarding.sending', 'ENVOI...')}</span>
                         </div>
                       ) : logoUrl ? (
                         <img src={logoUrl} alt="Avatar" className="w-full h-full object-cover" />
@@ -356,13 +358,13 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                 {/* Display Name Input */}
                 <div className="space-y-2">
                   <label className="block font-mono text-[9px] tracking-widest text-[#00FF41] uppercase">
-                    NOM D'AFFICHAGE
+                    {t('onboarding.display_name', 'NOM D\'AFFICHAGE')}
                   </label>
                   <input
                     type="text"
                     value={mentorName}
                     onChange={(e) => setMentorName(e.target.value)}
-                    placeholder="Ephata Master"
+                    placeholder="Sniper Master"
                     className="w-full bg-[rgba(255,255,255,0.02)] border border-white/[0.06] rounded-[16px] px-5 py-3.5 text-base font-bold text-white focus:outline-none focus:border-[#00FF41]/35 focus:bg-white/[0.01] transition-all"
                   />
                 </div>
@@ -370,7 +372,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                 {/* Live Preview Box */}
                 <div className="space-y-2 pt-2">
                   <label className="block font-mono text-[8px] tracking-widest text-[rgba(255,255,255,0.35)] uppercase">
-                    APERÇU EN DIRECT
+                    {t('onboarding.live_preview', 'APERÇU EN DIRECT')}
                   </label>
                   <div className="bg-[rgba(255,255,255,0.01)] border border-white/[0.04] rounded-[16px] p-4 flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full border border-[#00FF41]/30 shadow-[0_0_10px_rgba(0,255,65,0.15)] overflow-hidden bg-black/40 shrink-0">
@@ -384,11 +386,8 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-white font-black text-xs uppercase tracking-wider truncate flex items-center gap-1">
-                        <span>{mentorName || 'Nom du Terminal'}</span>
-                        <span className="text-[#00FF41]">TERMINAL</span>
-                      </div>
-                      <div className="font-mono text-[7px] text-[rgba(255,255,255,0.35)] tracking-widest uppercase">
-                        POWERED BY SNIPER
+                        <span>{mentorName || t('onboarding.terminal_name_fallback', 'Nom du Terminal')}</span>
+                        <span className="text-[#00FF41]">{t('common.terminal', 'TERMINAL').toUpperCase()}</span>
                       </div>
                     </div>
                   </div>
@@ -421,9 +420,9 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
 
                   {/* Intro */}
                   <div className="space-y-1 pb-4">
-                    <h2 className="text-lg font-bold text-white tracking-tight">Configuration Initiale</h2>
+                    <h2 className="text-lg font-bold text-white tracking-tight">{t('onboarding.config_initial', 'Configuration Initiale')}</h2>
                     <p className="text-[11px] text-[rgba(255,255,255,0.4)] leading-relaxed">
-                      Configurez votre profil de mentor pour inspirer confiance à vos membres.
+                      {t('onboarding.config_initial_desc', 'Configurez votre profil de mentor pour inspirer confiance à vos membres.')}
                     </p>
                   </div>
 
@@ -433,7 +432,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                     {/* Spécialité */}
                     <div className="space-y-1.5">
                       <label className="block font-mono text-[9px] tracking-widest text-[#00FF41] uppercase">
-                        VOTRE SPÉCIALITÉ / STYLE
+                        {t('onboarding.speciality_style', 'VOTRE SPÉCIALITÉ / STYLE')}
                       </label>
                       <input
                         type="text"
@@ -447,7 +446,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                     {/* Years of trading experience */}
                     <div className="space-y-1.5">
                       <label className="block font-mono text-[9px] tracking-widest text-[#00FF41] uppercase">
-                        ANNÉES D'EXPÉRIENCE EN TRADING
+                        {t('onboarding.years_experience', 'ANNÉES D\'EXPÉRIENCE EN TRADING')}
                       </label>
                       <input
                         type="text"
@@ -461,7 +460,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                     {/* Traders count */}
                     <div className="space-y-1.5">
                       <label className="block font-mono text-[9px] tracking-widest text-[#00FF41] uppercase">
-                        NOMBRE DE TRADERS
+                        {t('onboarding.traders_count', 'NOMBRE DE TRADERS')}
                       </label>
                       <input
                         type="text"
@@ -502,9 +501,9 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
 
                   {/* Intro */}
                   <div className="space-y-1 pb-3">
-                    <h2 className="text-lg font-bold text-white tracking-tight">Accès & Tarifs</h2>
+                    <h2 className="text-lg font-bold text-white tracking-tight">{t('onboarding.access_pricing', 'Accès & Tarifs')}</h2>
                     <p className="text-[11px] text-[rgba(255,255,255,0.4)] leading-relaxed">
-                      Définissez comment vos membres accèdent à vos signaux VIP et à l'Academy.
+                      {t('onboarding.access_pricing_desc', 'Définissez comment vos membres accèdent à vos signaux VIP et à l\'Academy.')}
                     </p>
                   </div>
 
@@ -516,16 +515,16 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                       <div className="flex items-center gap-1.5 border-b border-white/[0.06] pb-1.5">
                         <span className="text-sm">📡</span>
                         <h4 className="font-mono text-[9px] tracking-widest text-[#00FF41] uppercase font-bold">
-                          ACCÈS SIGNAUX VIP
+                          {t('onboarding.vip_signals_access', 'ACCÈS SIGNAUX VIP')}
                         </h4>
                       </div>
 
                       {/* Model Selector buttons */}
                       <div className="grid grid-cols-3 gap-1.5">
                         {[
-                          { id: 'payment', label: 'Paiement', desc: 'Abonnement' },
-                          { id: 'broker', label: 'Broker', desc: 'Affiliation' },
-                          { id: 'both', label: 'Les Deux', desc: 'Au Choix' },
+                          { id: 'payment', label: t('onboarding.payment_label', 'Paiement'), desc: t('onboarding.subscription', 'Abonnement') },
+                          { id: 'broker', label: t('onboarding.broker_label', 'Broker'), desc: t('onboarding.affiliation', 'Affiliation') },
+                          { id: 'both', label: t('onboarding.both_label', 'Les Deux'), desc: t('onboarding.choice', 'Au Choix') },
                         ].map((opt) => {
                           const active = vipModel === opt.id;
                           return (
@@ -553,7 +552,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                           <div className="grid grid-cols-2 gap-2">
                             <div className="space-y-1">
                               <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
-                                Prix Mensuel
+                                {t('onboarding.monthly_price', 'Prix Mensuel')}
                               </label>
                               <div className="relative">
                                 <input
@@ -568,7 +567,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                             </div>
                             <div className="space-y-1">
                               <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
-                                Prix Annuel
+                                {t('onboarding.annual_price', 'Prix Annuel')}
                               </label>
                               <div className="relative">
                                 <input
@@ -589,12 +588,12 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                       {(vipModel === 'broker' || vipModel === 'both') && (
                         <div className="space-y-3 bg-white/[0.01] border border-white/[0.04] p-3 rounded-xl animate-in fade-in duration-200">
                           <div className="text-[10px] text-white/50 leading-relaxed font-sans mb-1">
-                            Configurez le broker partenaire que vos membres devront utiliser.
+                            {t('onboarding.broker_desc', 'Configurez le broker partenaire que vos membres devront utiliser.')}
                           </div>
                           <div className="space-y-2">
                             <div>
                               <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
-                                Nom du Broker
+                                {t('onboarding.broker_name', 'Nom du Broker')}
                               </label>
                               <input
                                 type="text"
@@ -606,7 +605,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                             </div>
                             <div>
                               <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
-                                Lien d'affiliation
+                                {t('onboarding.affiliate_link', 'Lien d\'affiliation')}
                               </label>
                               <input
                                 type="text"
@@ -626,16 +625,16 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                       <div className="flex items-center gap-1.5 border-b border-white/[0.06] pb-1.5">
                         <span className="text-sm">🎓</span>
                         <h4 className="font-mono text-[9px] tracking-widest text-[#FFD60A] uppercase font-bold">
-                          ACCÈS ACADEMY
+                          {t('onboarding.academy_access', 'ACCÈS ACADEMY')}
                         </h4>
                       </div>
 
                       {/* Academy Selector buttons */}
                       <div className="grid grid-cols-3 gap-1.5">
                         {[
-                          { id: 'payment', label: 'Paiement', desc: 'Abonnement' },
-                          { id: 'broker', label: 'Broker', desc: 'Affiliation' },
-                          { id: 'both', label: 'Les Deux', desc: 'Au Choix' },
+                          { id: 'payment', label: t('onboarding.payment_label', 'Paiement'), desc: t('onboarding.subscription', 'Abonnement') },
+                          { id: 'broker', label: t('onboarding.broker_label', 'Broker'), desc: t('onboarding.affiliation', 'Affiliation') },
+                          { id: 'both', label: t('onboarding.both_label', 'Les Deux'), desc: t('onboarding.choice', 'Au Choix') },
                         ].map((opt) => {
                           const active = academyModel === opt.id;
                           return (
@@ -670,7 +669,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                                   : 'bg-transparent border-white/[0.06] text-white/40'
                               }`}
                             >
-                              Mensuel
+                              {t('onboarding.monthly', 'Mensuel')}
                             </button>
                             <button
                               type="button"
@@ -681,14 +680,14 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                                   : 'bg-transparent border-white/[0.06] text-white/40'
                               }`}
                             >
-                              À Vie
+                              {t('onboarding.lifetime', 'À Vie')}
                             </button>
                           </div>
 
                           {/* Price input */}
                           <div className="space-y-1">
                             <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
-                              Prix de l'Academy ({academyDurationModel === 'monthly' ? 'Mensuel' : 'Accès à vie'})
+                              {t('onboarding.academy_price_label', 'Prix de l\'Academy')} ({academyDurationModel === 'monthly' ? t('onboarding.monthly', 'Mensuel') : t('onboarding.lifetime_access', 'Accès à vie')})
                             </label>
                             <div className="relative">
                               <input
@@ -714,12 +713,12 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                       {(academyModel === 'broker' || academyModel === 'both') && (
                         <div className="space-y-3 bg-white/[0.01] border border-white/[0.04] p-3 rounded-xl animate-in fade-in duration-200">
                           <div className="text-[10px] text-[#60A5FA]/80 leading-relaxed font-sans mb-1">
-                            💡 Les membres devront s'inscrire via votre lien affilié pour débloquer l'Academy.
+                            {t('onboarding.broker_academy_tip', '💡 Les membres devront s\'inscrire via votre lien affilié pour débloquer l\'Academy.')}
                           </div>
                           <div className="space-y-2">
                             <div>
                               <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
-                                Nom du Broker
+                                {t('onboarding.broker_name', 'Nom du Broker')}
                               </label>
                               <input
                                 type="text"
@@ -731,7 +730,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                             </div>
                             <div>
                               <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
-                                Lien d'affiliation
+                                {t('onboarding.affiliate_link', 'Lien d\'affiliation')}
                               </label>
                               <input
                                 type="text"
@@ -752,14 +751,14 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                         <div className="flex items-center gap-1.5 border-b border-white/[0.06] pb-1.5">
                           <span className="text-sm">🪙</span>
                           <h4 className="font-mono text-[9px] tracking-widest text-[#0098EA] uppercase font-bold">
-                            MOYENS DE PAIEMENT CRYPTO
+                            {t('onboarding.crypto_payment', 'MOYENS DE PAIEMENT CRYPTO')}
                           </h4>
                         </div>
                         <div className="space-y-3 bg-white/[0.01] border border-white/[0.04] p-3 rounded-xl">
                           {/* Currency setting */}
                           <div className="space-y-1">
                             <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
-                              Devise de Facturation
+                              {t('onboarding.billing_currency', 'Devise de Facturation')}
                             </label>
                             <input
                               type="text"
@@ -774,8 +773,8 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                           <div className="border-t border-white/[0.04] pt-2.5 mt-1">
                             <div className="flex items-center justify-between">
                               <div className="text-left">
-                                <div className="text-[10px] font-bold text-[#0098EA]">TON Connect (Automatique)</div>
-                                <div className="text-[8px] text-white/40">Acceptez les paiements crypto en direct</div>
+                                <div className="text-[10px] font-bold text-[#0098EA]">{t('onboarding.ton_connect', 'TON Connect (Automatique)')}</div>
+                                <div className="text-[8px] text-white/40">{t('onboarding.ton_connect_desc', 'Acceptez les paiements crypto en direct')}</div>
                               </div>
                               <div 
                                 onClick={() => setTonPaymentEnabled(!tonPaymentEnabled)}
@@ -793,7 +792,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                               <div className="mt-2 space-y-2 animate-in slide-in-from-top-2 duration-200">
                                 <div>
                                   <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
-                                    Adresse Wallet TON
+                                    {t('onboarding.ton_wallet', 'Adresse Wallet TON')}
                                   </label>
                                   <input
                                     type="text"
@@ -809,7 +808,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                             {/* USDT TRC20 Wallet */}
                             <div className="mt-2">
                               <label className="block text-[8px] font-mono text-[rgba(255,255,255,0.4)] uppercase">
-                                Adresse USDT (TRC20)
+                              {t('onboarding.usdt_address', 'Adresse USDT (TRC20)')}
                               </label>
                               <input
                                 type="text"
@@ -850,9 +849,9 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                 </div>
 
                 <div className="text-center space-y-2">
-                  <h2 className="text-lg font-bold text-white tracking-tight">Terminal Prêt !</h2>
+                  <h2 className="text-lg font-bold text-white tracking-tight">{t('onboarding.terminal_ready', 'Terminal Prêt !')}</h2>
                   <p className="text-[11px] text-[rgba(255,255,255,0.45)] leading-relaxed max-w-[260px] mx-auto">
-                    Votre espace de trading est configuré. Partagez le lien d'invitation ci-dessous avec vos membres.
+                    {t('onboarding.terminal_ready_desc', 'Votre espace de trading est configuré. Partagez le lien d\'invitation ci-dessous avec vos membres.')}
                   </p>
                 </div>
 
@@ -860,7 +859,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                 <div className="w-full bg-black/50 border border-white/[0.06] rounded-xl p-4 relative overflow-hidden text-left">
                   <span className="absolute right-3 top-2.5 font-mono text-[7px] text-[rgba(255,255,255,0.25)] tracking-widest uppercase">SSL SECURE</span>
                   <label className="block font-mono text-[7px] tracking-[0.2em] text-[#00FF41]/50 uppercase mb-2">
-                    LIEN UNIQUE D'INVITATION
+                    {t('onboarding.unique_invite_link', 'LIEN UNIQUE D\'INVITATION')}
                   </label>
                   <div className="font-mono text-[10px] text-[rgba(255,255,255,0.85)] break-all leading-relaxed select-all">
                     t.me/SniperTradingBot/app?startapp={TENANT_ID}
@@ -877,7 +876,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                       : 'bg-white/[0.02] border-white/[0.08] text-[rgba(255,255,255,0.6)] hover:bg-white/[0.05] hover:text-white'
                   }`}
                 >
-                  {copied ? '✓ COPIÉ DANS LE PRESSE-PAPIER' : 'COPIER LE LIEN TELEGRAM'}
+                  {copied ? t('onboarding.copied', '✓ COPIÉ DANS LE PRESSE-PAPIER') : t('onboarding.copy_telegram_link', 'COPIER LE LIEN TELEGRAM')}
                 </motion.button>
               </motion.div>
             )}
@@ -900,7 +899,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                       : 'bg-white/10 text-white/30 cursor-not-allowed'
                   }`}
                 >
-                  {isSaving ? 'CHARGEMENT...' : 'SUIVANT'}
+                  {isSaving ? t('onboarding.loading', 'CHARGEMENT...') : t('onboarding.next', 'SUIVANT')}
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-chevron-right"><path d="m9 18 6-6-6-6"/></svg>
                 </motion.button>
               </div>
@@ -912,7 +911,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                   disabled={isSaving}
                   className="font-mono text-[9px] text-[rgba(255,255,255,0.25)] hover:text-white uppercase tracking-wider underline transition-colors bg-transparent border-none cursor-pointer"
                 >
-                  Déployer avec les valeurs par défaut
+                  {t('onboarding.deploy_default', 'Déployer avec les valeurs par défaut')}
                 </button>
               </div>
             </div>
@@ -930,7 +929,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                     : 'bg-white/10 text-white/30 cursor-not-allowed'
                 }`}
               >
-                {isSaving ? 'CHARGEMENT...' : 'SUIVANT'}
+                {isSaving ? t('onboarding.loading', 'CHARGEMENT...') : t('onboarding.next', 'SUIVANT')}
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-chevron-right"><path d="m9 18 6-6-6-6"/></svg>
               </motion.button>
             </div>
@@ -948,7 +947,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
                     : 'bg-white/10 text-white/30 cursor-not-allowed'
                 }`}
               >
-                {isSaving ? 'CHARGEMENT...' : 'SUIVANT'}
+                {isSaving ? t('onboarding.loading', 'CHARGEMENT...') : t('onboarding.next', 'SUIVANT')}
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-chevron-right"><path d="m9 18 6-6-6-6"/></svg>
               </motion.button>
             </div>
@@ -961,7 +960,7 @@ export default function MentorOnboarding({ config, onComplete }: MentorOnboardin
               disabled={isSaving}
               className="w-full h-13 bg-gradient-to-r from-[#00FF41] to-[#00E53B] text-[#080B14] rounded-xl font-mono text-[11px] font-black tracking-[0.15em] shadow-[0_0_24px_rgba(0,255,65,0.25)] hover:shadow-[0_0_32px_rgba(0,255,65,0.4)] transition-all uppercase border border-[#00FF41]/20 cursor-pointer"
             >
-              {isSaving ? 'CHARGEMENT...' : 'ACCÉDER À MON TERMINAL →'}
+              {isSaving ? t('onboarding.loading', 'CHARGEMENT...') : t('onboarding.access_terminal', 'ACCÉDER À MON TERMINAL →')}
             </motion.button>
           )}
         </div>

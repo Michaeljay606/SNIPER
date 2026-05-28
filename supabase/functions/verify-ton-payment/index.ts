@@ -152,7 +152,9 @@ serve(async (req: Request) => {
           status: 'active',
           vip_expires_at: vipExpiry,
         }
-        if (!isVipFlow) {
+        if (isVipFlow) {
+          affiliateUpdate.has_signals_access = true
+        } else {
           affiliateUpdate.has_academy_access = true
         }
 

@@ -7,6 +7,7 @@ import { useSignals } from '../../hooks/useSignals';
 import { useUserRole } from '../../hooks/useUserRole';
 import { useQueryClient } from '@tanstack/react-query';
 import { Activity } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import VipModal from '../VipModal';
 
 interface Signal {
@@ -51,6 +52,7 @@ const BINARY_TICKERS = [
 const DashboardTab = () => {
   const { tenant_id } = useParams();
   const { config } = useClientConfig();
+  const { t } = useTranslation();
   const { isAdmin, canSeeVipSignals } = useUserRole();
   const queryClient = useQueryClient();
 
@@ -174,9 +176,9 @@ const DashboardTab = () => {
       
       let key: string;
       if (date.toDateString() === today.toDateString()) {
-        key = 'AUJOURD\'HUI';
+        key = t('dashboard.today', 'AUJOURD\'HUI');
       } else if (date.toDateString() === yesterday.toDateString()) {
-        key = 'HIER';
+        key = t('dashboard.yesterday', 'HIER');
       } else {
         key = date.toLocaleDateString('fr-FR', {
           day: 'numeric',
@@ -240,11 +242,11 @@ const DashboardTab = () => {
       if (bin) {
         return (
           <div className="result-pill" style={{ background: 'rgba(0,255,65,0.1)', border: '1px solid rgba(0,255,65,0.3)', color: 'var(--green)' }}>
-            ✓ WIN {s.rr || 'DIRECT'}
+            ✓ WIN {s.rr || t('dashboard.win_direct', 'DIRECT')}
           </div>
         );
       }
-      const lbl = s.rr ? `+${s.rr} Pips` : '';
+      const lbl = s.rr ? `+${s.rr} ${t('dashboard.pips', 'Pips')}` : '';
       return (
         <div className="result-pill" style={{ background: 'rgba(0,255,65,0.1)', border: '1px solid rgba(0,255,65,0.3)', color: 'var(--green)' }}>
           ✓ TP {lbl}
@@ -268,7 +270,7 @@ const DashboardTab = () => {
     }
     if (s.status === 'cancelled') return (
       <div className="result-pill" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)' }}>
-        ANNULÉ
+        {t('dashboard.cancelled', 'ANNULÉ')}
       </div>
     );
     return (
@@ -309,7 +311,7 @@ const DashboardTab = () => {
         <div className="corner c-br" style={{ borderColor: cornerColor }} />
 
         <div style={{ position: 'absolute', top: 0, left: 0, background: themeColor, padding: '3px 10px', borderRadius: '0 0 8px 0', fontSize: 7, fontFamily: 'var(--mono)', fontWeight: 700, color: '#000', zIndex: 5 }}>
-          ALERTE
+          {t('dashboard.alert', 'ALERTE')}
         </div>
 
         <div className="card-top" style={{ marginTop: 14 }}>
@@ -327,12 +329,12 @@ const DashboardTab = () => {
             {s.is_vip ? (
               <span className="vip-badge" style={{ background: 'rgba(255,214,10,0.1)', color: '#FFD60A', border: '1px solid rgba(255,214,10,0.3)' }}>VIP</span>
             ) : (
-              <span className="vip-badge" style={{ background: 'rgba(0,255,65,0.1)', color: '#00FF41', border: '1px solid rgba(0,255,65,0.3)' }}>GRATUIT</span>
+              <span className="vip-badge" style={{ background: 'rgba(0,255,65,0.1)', color: '#00FF41', border: '1px solid rgba(0,255,65,0.3)' }}>{t('dashboard.free', 'GRATUIT')}</span>
             )}
           </div>
           <div className="live-ind" style={{ color: themeColor }}>
             <span className="live-dot" style={{ background: themeColor, boxShadow: `0 0 8px rgba(${themeRgb},0.8)`, animation: 'pulse-glow 1.5s infinite' }} />
-            SURVEILLANCE
+            {t('dashboard.surveillance', 'SURVEILLANCE')}
           </div>
         </div>
 
@@ -342,11 +344,11 @@ const DashboardTab = () => {
               <div className="binary-hero">
                 <div className="b-stat">
                   <div className="b-val" style={{ color: bin ? themeColor : 'var(--red)' }}>—</div>
-                  <div className="b-lbl" style={{ color: bin ? undefined : 'rgba(255,59,48,0.6)' }}>{bin ? 'EXPIRATION' : 'STOP LOSS'}</div>
+                  <div className="b-lbl" style={{ color: bin ? undefined : 'rgba(255,59,48,0.6)' }}>{bin ? t('dashboard.expiration', 'EXPIRATION') : 'STOP LOSS'}</div>
                 </div>
                 <div className="b-stat" style={{ borderLeft: '1px solid var(--subtle)', borderRight: '1px solid var(--subtle)' }}>
-                  <div className="b-val" style={{ color: themeColor, fontSize: '14px' }}>À DÉFINIR</div>
-                  <div className="b-lbl">ZONE D'ENTRÉE</div>
+                  <div className="b-val" style={{ color: themeColor, fontSize: '14px' }}>{t('dashboard.to_define', 'À DÉFINIR')}</div>
+                  <div className="b-lbl">{t('dashboard.entry_zone', 'ZONE D\'ENTRÉE')}</div>
                 </div>
                 <div className="b-stat">
                   <div className="b-val" style={{ color: bin ? '#fff' : 'var(--green)' }}>—</div>
@@ -362,11 +364,11 @@ const DashboardTab = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 0 }}>
                 <span style={{ fontSize: '18px' }}>🔐</span>
                 <span style={{ fontFamily: 'var(--mono)', fontSize: '11px', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.95)', fontWeight: 700 }}>
-                  ALERTE VIP
+                  {t('dashboard.vip_alert', 'ALERTE VIP')}
                 </span>
               </div>
               <button onClick={() => setIsVipModalOpen(true)} style={{ fontFamily: 'var(--mono)', fontSize: '9px', padding: '6px 16px', borderRadius: '24px', background: 'rgba(255,214,10,0.16)', border: '1px solid rgba(255,214,10,0.4)', color: '#FFD60A', cursor: 'pointer', letterSpacing: '0.05em', fontWeight: 800, transition: 'all 0.2s' }}>
-                DÉBLOQUER
+                {t('dashboard.unlock', 'DÉBLOQUER')}
               </button>
             </div>
           </div>
@@ -375,15 +377,15 @@ const DashboardTab = () => {
             <div className="binary-hero">
               <div className="b-stat">
                 <div className="b-val" style={{ color: bin ? themeColor : 'var(--red)' }}>—</div>
-                <div className="b-lbl" style={{ color: bin ? undefined : 'rgba(255,59,48,0.6)' }}>{bin ? 'EXPIRATION' : 'STOP LOSS'}</div>
+                <div className="b-lbl" style={{ color: bin ? undefined : 'rgba(255,59,48,0.6)' }}>{bin ? t('dashboard.expiration', 'EXPIRATION') : 'STOP LOSS'}</div>
               </div>
               <div className="b-stat" style={{ borderLeft: '1px solid var(--subtle)', borderRight: '1px solid var(--subtle)' }}>
                 <div className="b-val" style={{ color: themeColor, fontSize: '18px', whiteSpace: 'nowrap' }}>
                   {s.entry_low && s.entry_high 
                     ? `${s.entry_low} - ${s.entry_high}` 
-                    : (s.entry_low || s.entry_high || s.entry || 'À DÉFINIR')}
+                    : (s.entry_low || s.entry_high || s.entry || t('dashboard.to_define', 'À DÉFINIR'))}
                 </div>
-                <div className="b-lbl">ZONE D'ENTRÉE</div>
+                <div className="b-lbl">{t('dashboard.entry_zone', 'ZONE D\'ENTRÉE')}</div>
               </div>
               <div className="b-stat">
                 <div className="b-val" style={{ color: bin ? '#fff' : 'var(--green)' }}>—</div>
@@ -407,7 +409,7 @@ const DashboardTab = () => {
 
         <div className="card-bottom" style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.04)' }}>
           <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: themeColor }}>
-            En attente d'activation...
+            {t('dashboard.waiting_activation', 'En attente d\'activation...')}
           </span>
           <span className="card-time">
             <Clock size={9} style={{ display: 'inline', marginRight: 3 }} />
@@ -466,23 +468,23 @@ const DashboardTab = () => {
 
         {!closed && s.signal_type === 'WATCH' ? (
           <div style={{ position: 'absolute', top: 0, left: 0, background: s.is_vip ? '#FFD60A' : '#0098EA', padding: '3px 10px', borderRadius: '0 0 8px 0', fontSize: 7, fontFamily: 'var(--mono)', fontWeight: 700, color: s.is_vip ? '#050507' : '#fff', zIndex: 5 }}>
-            👀 ZONE DE SURVEILLANCE
+            {t('dashboard.watch_zone', '👀 ZONE DE SURVEILLANCE')}
           </div>
         ) : !closed && s.status === 'tp1_hit' ? (
           <div style={{ position: 'absolute', top: 0, left: 0, background: 'rgba(0, 255, 65, 0.16)', borderRight: '1px solid rgba(0, 255, 65, 0.3)', borderBottom: '1px solid rgba(0, 255, 65, 0.3)', padding: '3px 12px', borderRadius: '0 0 8px 0', fontSize: 8, fontFamily: 'var(--mono)', fontWeight: 800, color: 'var(--green)', zIndex: 5, letterSpacing: '0.05em', boxShadow: '0 2px 10px rgba(0, 255, 65, 0.15)' }}>
-            🎯 TP 1 TOUCHÉ ! {s.rr ? `(+${s.rr} Pips)` : ''}
+            {t('dashboard.tp1_hit', '🎯 TP 1 TOUCHÉ !')} {s.rr ? `(+${s.rr} ${t('dashboard.pips', 'Pips')})` : ''}
           </div>
         ) : !closed && s.status === 'tp2_hit' ? (
           <div style={{ position: 'absolute', top: 0, left: 0, background: 'rgba(0, 255, 65, 0.16)', borderRight: '1px solid rgba(0, 255, 65, 0.3)', borderBottom: '1px solid rgba(0, 255, 65, 0.3)', padding: '3px 12px', borderRadius: '0 0 8px 0', fontSize: 8, fontFamily: 'var(--mono)', fontWeight: 800, color: 'var(--green)', zIndex: 5, letterSpacing: '0.05em', boxShadow: '0 2px 10px rgba(0, 255, 65, 0.15)' }}>
-            🎯 TP 2 TOUCHÉ ! {s.rr ? `(+${s.rr} Pips)` : ''}
+            {t('dashboard.tp2_hit', '🎯 TP 2 TOUCHÉ !')} {s.rr ? `(+${s.rr} ${t('dashboard.pips', 'Pips')})` : ''}
           </div>
         ) : !closed && isJustActivated ? (
           <div style={{ position: 'absolute', top: 0, left: 0, background: s.is_vip ? '#FFD60A' : 'var(--amber)', padding: '3px 12px', borderRadius: '0 0 8px 0', fontSize: 8, fontFamily: 'var(--mono)', fontWeight: 800, color: '#000', zIndex: 5, letterSpacing: '0.05em' }}>
-            ⚡ GO NOW !
+            {t('dashboard.go_now', '⚡ GO NOW !')}
           </div>
         ) : !closed ? (
           <div style={{ position: 'absolute', top: 0, left: 0, background: s.is_vip ? '#FFD60A' : 'rgba(255,255,255,0.08)', padding: '3px 10px', borderRadius: '0 0 8px 0', fontSize: 7, fontFamily: 'var(--mono)', fontWeight: 700, color: s.is_vip ? '#050507' : 'rgba(255,255,255,0.7)', zIndex: 5 }}>
-            📈 EN COURS
+            {t('dashboard.in_progress', '📈 EN COURS')}
           </div>
         ) : null}
 
@@ -501,7 +503,7 @@ const DashboardTab = () => {
             {s.is_vip ? (
               <span className="vip-badge" style={{ background: 'rgba(255,214,10,0.1)', color: '#FFD60A', border: '1px solid rgba(255,214,10,0.3)' }}>VIP</span>
             ) : (
-              <span className="vip-badge" style={{ background: 'rgba(0,255,65,0.1)', color: '#00FF41', border: '1px solid rgba(0,255,65,0.3)' }}>GRATUIT</span>
+              <span className="vip-badge" style={{ background: 'rgba(0,255,65,0.1)', color: '#00FF41', border: '1px solid rgba(0,255,65,0.3)' }}>{t('dashboard.free', 'GRATUIT')}</span>
             )}
           </div>
           {renderResultBadge(s)}
@@ -513,8 +515,8 @@ const DashboardTab = () => {
               {/* Blurred Data */}
               <div style={{ filter: 'blur(12px)', userSelect: 'none', pointerEvents: 'none', opacity: 0.85, transform: 'scale(0.85)', transformOrigin: 'center top' }}>
                 <div className="entry-hero">
-                  <div className="entry-price">{s.entry || (s.entry_low && s.entry_high ? `${s.entry_low} - ${s.entry_high}` : (s.entry_low || s.entry_high || 'À DÉFINIR'))}</div>
-                  <div className="entry-label">PRIX D'ENTRÉE</div>
+                  <div className="entry-price">{s.entry || (s.entry_low && s.entry_high ? `${s.entry_low} - ${s.entry_high}` : (s.entry_low || s.entry_high || t('dashboard.to_define', 'À DÉFINIR')))}</div>
+                  <div className="entry-label">{t('dashboard.entry_price', 'PRIX D\'ENTRÉE')}</div>
                 </div>
                 <div className="card-bottom">
                   <div className="levels">
@@ -536,11 +538,11 @@ const DashboardTab = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 0 }}>
                   <span style={{ fontSize: '18px' }}>🔐</span>
                   <span style={{ fontFamily: 'var(--mono)', fontSize: '11px', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.95)', fontWeight: 700 }}>
-                    SIGNAL VIP
+                    {t('dashboard.vip_signal', 'SIGNAL VIP')}
                   </span>
                 </div>
                 <button onClick={() => setIsVipModalOpen(true)} style={{ fontFamily: 'var(--mono)', fontSize: '9px', padding: '6px 16px', borderRadius: '24px', background: 'rgba(255,214,10,0.16)', border: '1px solid rgba(255,214,10,0.4)', color: '#FFD60A', cursor: 'pointer', letterSpacing: '0.05em', fontWeight: 800, transition: 'all 0.2s' }}>
-                  DÉBLOQUER
+                  {t('dashboard.unlock', 'DÉBLOQUER')}
                 </button>
               </div>
             </div>
@@ -556,8 +558,8 @@ const DashboardTab = () => {
         ) : (
           <>
             <div className="entry-hero">
-              <div className="entry-price">{s.entry || (s.entry_low && s.entry_high ? `${s.entry_low} - ${s.entry_high}` : (s.entry_low || s.entry_high || 'À DÉFINIR'))}</div>
-              <div className="entry-label">PRIX D'ENTRÉE</div>
+              <div className="entry-price">{s.entry || (s.entry_low && s.entry_high ? `${s.entry_low} - ${s.entry_high}` : (s.entry_low || s.entry_high || t('dashboard.to_define', 'À DÉFINIR')))}</div>
+              <div className="entry-label">{t('dashboard.entry_price', 'PRIX D\'ENTRÉE')}</div>
             </div>
 
             <div className="card-bottom">

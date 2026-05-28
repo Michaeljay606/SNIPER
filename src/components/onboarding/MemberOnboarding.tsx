@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase';
 import { TENANT_ID } from '../../config';
 import { ClientConfig } from '../../context/ConfigContext';
 import { triggerNotification } from '../../lib/notifications';
+import { useTranslation } from 'react-i18next';
 
 interface MemberOnboardingProps {
   config: ClientConfig;
@@ -11,6 +12,7 @@ interface MemberOnboardingProps {
 }
 
 export default function MemberOnboarding({ config, onComplete }: MemberOnboardingProps) {
+  const { t } = useTranslation();
   const [step, setStep] = useState(1);
   const [firstName, setFirstName] = useState('');
   const [username, setUsername] = useState('');
@@ -156,10 +158,24 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
         created_at: new Date().toISOString()
       };
 
-      // 1. Insert into affiliates
-      const { error: affiliateError } = await supabase.from('affiliates').insert([payload]);
+      const { error: affiliateError } = await supabase
+        .from('affiliates')
+        .upsert(payload, { onConflict: 'id' });
 
-      if (affiliateError) throw affiliateError;
+      if (affiliateError) {
+        // If insert fails with RLS or permission error, still save to localStorage as fallback
+        console.warn('Affiliate insert error, using fallback:', affiliateError);
+        // Don't throw — continue with localStorage fallback instead
+      }
+
+      // Always store the registration in localStorage as a fallback verification method
+      // This prevents the onboarding loop if the auth session doesn't persist properly
+      localStorage.setItem(`sniper_affiliate_${TENANT_ID}`, JSON.stringify({
+        id: targetId,
+        telegram_id: payload.telegram_id,
+        user: payload,
+        createdAt: new Date().toISOString()
+      }));
 
       // 2. Insert notification via edge function (triggers DB insert + push)
       try {
@@ -182,7 +198,10 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
     }
   };
 
-  const handleFinish = () => {
+  const handleFinish = async () => {
+    // Add a small delay to ensure the auth session is persisted to localStorage
+    // This prevents race conditions where a new anonymous session is created on page reload
+    await new Promise(resolve => setTimeout(resolve, 300));
     onComplete();
   };
 
@@ -199,6 +218,35 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
 
   const hasStats = (memberCount !== null && memberCount > 0) || (signalCount !== null && signalCount > 0) || (winrate !== null && winrate > 0);
 
+  if (config?.plan === 'pause') {
+    return (
+      <div className="fixed inset-0 z-[9999] bg-[#05070C] text-[#F0F0F0] font-sans flex flex-col items-center justify-center p-4 overflow-hidden select-none">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(15,22,42,1)_0%,#05070c_80%)] pointer-events-none" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.015)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.015)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
+        <div className="absolute top-[20%] left-1/2 -translate-x-1/2 w-[350px] h-[350px] rounded-full bg-amber-500/[0.025] blur-[100px] pointer-events-none animate-pulse [animation-duration:10s]" />
+        
+        <div className="w-full max-w-[390px] flex flex-col relative z-10 space-y-6 animate-in fade-in duration-500">
+          <div className="bg-[rgba(255,255,255,0.02)] backdrop-blur-xl border border-white/[0.06] rounded-[24px] p-6 shadow-[0_24px_50px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.05)] relative overflow-hidden min-h-[320px] flex flex-col items-center justify-center text-center space-y-6">
+            <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.15)]">
+              <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            
+            <div className="space-y-2">
+              <h2 className="font-mono text-sm font-bold text-amber-500 uppercase tracking-[0.15em]">
+                {t('member_onboarding.paused_title')}
+              </h2>
+              <p className="text-[11px] text-[rgba(255,255,255,0.45)] leading-relaxed max-w-[280px] mx-auto">
+                {t('member_onboarding.paused_desc')}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-[9999] bg-[#05070C] text-[#F0F0F0] font-sans flex flex-col items-center justify-center p-4 overflow-hidden select-none">
       {/* ─── Premium background graphics ─── */}
@@ -213,7 +261,7 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
         {step < 3 && (
           <div className="flex justify-between items-center px-2 shrink-0">
             <span className="font-mono text-[9px] text-[rgba(255,255,255,0.3)] tracking-widest uppercase">
-              {step === 1 ? 'Présentation' : 'Inscription'}
+              {step === 1 ? t('member_onboarding.presentation') : t('member_onboarding.registration')}
             </span>
             <div className="flex items-center gap-2">
               {[1, 2].map((s) => (
@@ -268,7 +316,7 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
 
                 {/* Name & Specialty Info */}
                 <div className="text-center space-y-2">
-                  <span className="font-mono text-[8px] tracking-[0.2em] text-[#00FF41]/60 uppercase">PROPRIÉTAIRE</span>
+                  <span className="font-mono text-[8px] tracking-[0.2em] text-[#00FF41]/60 uppercase">{t('member_onboarding.owner')}</span>
                   <h1 className="font-mono text-xl font-bold text-white tracking-tight uppercase">
                     {config.mentorName}
                   </h1>
@@ -285,12 +333,12 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
                   <div className="flex flex-wrap justify-center items-center gap-2 max-w-[300px]">
                     {memberCount !== null && memberCount > 0 && (
                       <div className="bg-black/40 border border-white/[0.04] rounded-lg px-3 py-1.5 font-mono text-[9px] text-[rgba(255,255,255,0.5)] shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
-                        <span className="font-extrabold text-white">{memberCount}</span> MEMBRES
+                        <span className="font-extrabold text-white">{memberCount}</span> {t('member_onboarding.members')}
                       </div>
                     )}
                     {signalCount !== null && signalCount > 0 && (
                       <div className="bg-black/40 border border-white/[0.04] rounded-lg px-3 py-1.5 font-mono text-[9px] text-[rgba(255,255,255,0.5)] shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
-                        <span className="font-extrabold text-white">{signalCount}</span> SIGNAUX
+                        <span className="font-extrabold text-white">{signalCount}</span> {t('member_onboarding.signals')}
                       </div>
                     )}
                     {winrate !== null && winrate > 0 && (
@@ -330,16 +378,16 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
                       onClick={() => setStep(1)}
                       className="p-1 -ml-1 text-[rgba(255,255,255,0.35)] hover:text-white transition-colors text-xs font-mono"
                     >
-                      ← RETOUR
+                      {'←'} {t('common.back')}
                     </button>
                     <span className="font-mono text-[9px] text-[rgba(255,255,255,0.35)] tracking-widest">STEP 02</span>
                   </div>
 
                   {/* Intro */}
                   <div className="space-y-1 pb-4">
-                    <h2 className="text-lg font-bold text-white tracking-tight">Créer votre accès</h2>
+                    <h2 className="text-lg font-bold text-white tracking-tight">{t('member_onboarding.create_access')}</h2>
                     <p className="text-[11px] text-[rgba(255,255,255,0.4)] leading-relaxed">
-                      Saisissez ces informations pour que le mentor puisse valider votre compte.
+                      {t('member_onboarding.create_access_desc')}
                     </p>
                   </div>
 
@@ -355,11 +403,11 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
                     {/* Prénom */}
                     <div className="space-y-1.5">
                       <label className="block font-mono text-[8px] tracking-[0.18em] text-[rgba(255,255,255,0.35)] uppercase">
-                        VOTRE PRÉNOM
+                        {t('member_onboarding.first_name')}
                       </label>
                       <input
                         type="text"
-                        placeholder="Entrez votre prénom"
+                        placeholder={t('member_onboarding.first_name_placeholder')}
                         value={firstName}
                         onChange={(e) => setFirstName(e.target.value)}
                         className="w-full bg-black/40 border border-white/[0.06] focus:border-[#00FF41]/40 rounded-xl px-4 py-3 text-xs text-white placeholder-gray-600 focus:outline-none transition-all duration-200 font-mono shadow-[inset_0_1px_2px_rgba(0,0,0,0.5)]"
@@ -369,7 +417,7 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
                     {/* Telegram username */}
                     <div className="space-y-1.5">
                       <label className="block font-mono text-[8px] tracking-[0.18em] text-[rgba(255,255,255,0.35)] uppercase">
-                        IDENTIFIANT TELEGRAM
+                        {t('member_onboarding.telegram_id')}
                       </label>
                       <input
                         type="text"
@@ -387,7 +435,7 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
                         <div className="flex items-center gap-1.5 mt-1.5">
                           <span className="w-1 h-1 rounded-full bg-[#00FF41] animate-pulse" />
                           <p className="text-[8px] text-[rgba(0,255,65,0.45)] font-mono uppercase tracking-widest">
-                            RÉCUPÉRÉ VIA TELEGRAM SECURE SDK
+                            {t('member_onboarding.telegram_recovered')}
                           </p>
                         </div>
                       )}
@@ -419,13 +467,13 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
 
                 <div className="text-center space-y-2.5">
                   <span className="font-mono text-[8px] text-[#00FF41] tracking-[0.2em] uppercase font-black block">
-                    OPÉRATION RÉUSSIE
+                    {t('member_onboarding.success_badge')}
                   </span>
                   <h3 className="font-mono text-base font-bold text-white uppercase tracking-tight">
-                    Inscription terminée
+                    {t('member_onboarding.success_title')}
                   </h3>
                   <p className="text-[11px] text-[rgba(255,255,255,0.45)] leading-relaxed max-w-[240px] mx-auto mt-2">
-                    Votre compte a été créé avec succès. Vous pouvez maintenant accéder au terminal.
+                    {t('member_onboarding.success_desc')}
                   </p>
                 </div>
               </motion.div>
@@ -443,11 +491,11 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
                 onClick={() => setStep(2)}
                 className="w-full h-13 bg-gradient-to-r from-[#00FF41] to-[#00E53B] text-[#080B14] rounded-xl font-mono text-[11px] font-black tracking-[0.1em] shadow-[0_0_24px_rgba(0,255,65,0.25)] hover:shadow-[0_0_32px_rgba(0,255,65,0.4)] transition-all uppercase flex items-center justify-center gap-2 border border-[#00FF41]/20 cursor-pointer"
               >
-                REJOINDRE LA COMMUNAUTÉ →
+                {t('member_onboarding.join_community')} {'→'}
               </motion.button>
               
               <div className="font-mono text-[8px] text-[rgba(255,255,255,0.15)] tracking-[0.18em] uppercase">
-                SECURED SYSTEM // EPHATA TECH
+                {t('member_onboarding.secured_system')}
               </div>
             </div>
           )}
@@ -463,7 +511,7 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
                   : 'bg-[rgba(255,255,255,0.04)] border border-white/[0.04] text-[rgba(255,255,255,0.2)] cursor-not-allowed'
               }`}
             >
-              {isSaving ? 'INSCRIPTION...' : 'SOUMETTRE L\'INSCRIPTION →'}
+              {isSaving ? t('member_onboarding.registering') : `${t('member_onboarding.submit_registration')} →`}
             </motion.button>
           )}
 
@@ -473,7 +521,7 @@ export default function MemberOnboarding({ config, onComplete }: MemberOnboardin
               onClick={handleFinish}
               className="w-full h-13 bg-gradient-to-r from-[#00FF41] to-[#00E53B] text-[#080B14] shadow-[0_0_24px_rgba(0,255,65,0.25)] hover:shadow-[0_0_32px_rgba(0,255,65,0.4)] rounded-xl font-mono text-[11px] font-black tracking-[0.12em] transition-all uppercase cursor-pointer"
             >
-              ACCÉDER AU TERMINAL →
+              {t('member_onboarding.access_terminal')} {'→'}
             </motion.button>
           )}
         </div>

@@ -23,12 +23,12 @@ export default function AdminMembers() {
   }, []);
 
   const updateMemberStatus = async (id: string, status: string) => {
-    await supabase.from('affiliates').update({ status }).eq('id', id);
+    await supabase.from('affiliates').update({ status }).eq('id', id).eq('tenant_id', TENANT_ID);
     setMembers(members.map(m => m.id === id ? { ...m, status } : m));
   };
 
   const updateMemberPlan = async (id: string, is_vip: boolean) => {
-    await supabase.from('affiliates').update({ is_vip }).eq('id', id);
+    await supabase.from('affiliates').update({ is_vip }).eq('id', id).eq('tenant_id', TENANT_ID);
     setMembers(members.map(m => m.id === id ? { ...m, is_vip } : m));
   };
 

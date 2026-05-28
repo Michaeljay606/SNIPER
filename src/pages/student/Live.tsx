@@ -5,9 +5,11 @@ import { supabase } from '../../lib/supabase';
 import SignalFeed from '../../components/signals/SignalFeed';
 import { useSignals } from '../../hooks/useSignals';
 import { useTradingMode } from '../../context/TradingModeContext';
+import { useTranslation } from 'react-i18next';
 
 export default function Live() {
-  const { tenant_id } = useOutletContext<any>();
+  const { t } = useTranslation();
+  const { tenant_id, planFeatures } = useOutletContext<any>();
   const { tradingMode } = useTradingMode();
   const { signals, isLoading } = useSignals(tenant_id || 'default', tradingMode === 'MARKETS' ? 'forex' : 'binary');
   const [filter, setFilter] = useState<'ALL' | 'ACTIVE' | 'CLOSED'>('ALL');
@@ -27,6 +29,12 @@ export default function Live() {
 
   return (
     <div className="space-y-6 pt-2">
+      {planFeatures?.isPaused && (
+        <div className="mx-4 p-3 bg-amber-500/10 border border-amber-500/30 text-amber-500 rounded-xl text-center font-mono text-[10px] tracking-wider uppercase">
+          ⚠️ Terminal Suspendu — Les nouveaux signaux sont interrompus. Accès aux signaux existants uniquement.
+        </div>
+      )}
+
       {/* PRIX LIVE — 3 colonnes égales */}
       <div className="grid grid-cols-3 divide-x divide-[rgba(255,255,255,0.07)] border-y border-[rgba(255,255,255,0.07)] bg-[#08090d]">
         {[
@@ -48,23 +56,23 @@ export default function Live() {
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-2">
             <span className="text-[11px] font-bold text-white uppercase tracking-widest flex items-center gap-1.5">
-              SIGNAUX LIVE <span className="w-1.5 h-1.5 bg-[var(--accent-emerald)] rounded-full animate-pulse shadow-[0_0_8px_var(--accent-emerald)]"></span>
+              {t('live.title')} <span className="w-1.5 h-1.5 bg-[var(--accent-emerald)] rounded-full animate-pulse shadow-[0_0_8px_var(--accent-emerald)]"></span>
             </span>
             <span className="px-2 py-0.5 bg-[var(--accent-emerald-dim)] text-[var(--accent-emerald)] border border-[var(--accent-emerald)]/30 rounded text-[9px] font-black uppercase tracking-tighter">
               [BASIC]
             </span>
           </div>
           <button className="px-3 py-1.5 border border-[var(--accent-emerald)] text-[var(--accent-emerald)] rounded-lg text-[11px] font-bold uppercase tracking-widest bg-transparent">
-            MARKET OUVERT
+            {t('live.market_open')}
           </button>
         </div>
         <p className="font-mono text-[11px] text-[var(--text-secondary)] uppercase tracking-wider">
-          SIGNAUX EN TEMPS RÉEL · {(() => {
+          {t('live.real_time')} · {(() => {
             const today = new Date().toDateString();
             return signals.filter(s => 
               s.status === 'active' && new Date(s.created_at || Date.now()).toDateString() === today
             ).length;
-          })()} ACTIFS
+          })()} {t('live.active')}
         </p>
       </div>
 
@@ -72,7 +80,7 @@ export default function Live() {
       <div className="flex items-center justify-center gap-4 px-[16px]">
         <div className="h-[1px] flex-1 bg-[rgba(255,255,255,0.07)]"></div>
         <span className="text-[11px] font-black text-[var(--accent-emerald)] uppercase tracking-[0.2em] flex items-center gap-2">
-          ⚡ EN COURS (LIVE)
+          ⚡ {t('dashboard.live_status')}
         </span>
         <div className="h-[1px] flex-1 bg-[rgba(255,255,255,0.07)]"></div>
       </div>
@@ -88,7 +96,7 @@ export default function Live() {
           <div className="flex items-center justify-center gap-4 px-[16px]">
             <div className="h-[1px] flex-1 bg-[rgba(255,255,255,0.07)]"></div>
             <span className="text-[11px] font-black text-[var(--accent-gold)] uppercase tracking-[0.2em] flex items-center gap-2">
-              ⚡ ALERTES ACTIVES
+              {t('dashboard.active_alerts')}
             </span>
             <div className="h-[1px] flex-1 bg-[rgba(255,255,255,0.07)]"></div>
           </div>
@@ -101,7 +109,7 @@ export default function Live() {
       {regulars.length === 0 && (
         <div className="text-center py-[40px] text-[var(--text-muted)] flex flex-col items-center justify-center h-[200px]">
           <Activity size={40} className="mb-4 opacity-50" />
-          <p className="text-[13px] font-bold uppercase tracking-widest">Aucun signal actif</p>
+          <p className="text-[13px] font-bold uppercase tracking-widest">{t('live.no_signals')}</p>
         </div>
       )}
     </div>

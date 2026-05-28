@@ -7,10 +7,15 @@ export function useLongPress(
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const start = () => {
-    timerRef.current = setTimeout(onLongPress, duration)
+    console.log('🖱️ Long press START');
+    timerRef.current = setTimeout(() => {
+      console.log('✅ Long press TIMEOUT REACHED');
+      onLongPress();
+    }, duration)
   }
 
   const cancel = () => {
+    console.log('🛑 Long press CANCELLED');
     if (timerRef.current) {
       clearTimeout(timerRef.current)
       timerRef.current = null
@@ -18,6 +23,11 @@ export function useLongPress(
   }
 
   return {
+    onMouseDown: start,
+    onMouseUp: cancel,
+    onMouseLeave: cancel,
+    onTouchStart: start,
+    onTouchEnd: cancel,
     onPointerDown: start,
     onPointerUp: cancel,
     onPointerLeave: cancel,

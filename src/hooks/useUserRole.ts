@@ -1,12 +1,13 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { TENANT_ID } from '../config';
 import { useClientConfig } from './useClientConfig';
+import { useParams } from 'react-router-dom';
+import { TENANT_ID as FALLBACK_TENANT_ID } from '../config';
 
 export interface Affiliate {
   id: string;
   tenant_id: string;
-  telegram_id: number;
+  telegram_id: number | string | null;
   status: 'pending' | 'active' | 'refused' | 'banned';
   is_vip: boolean;
   role: 'user' | 'admin' | 'mentor';
@@ -16,35 +17,29 @@ export interface Affiliate {
   broker?: string;
   vip_expires_at?: string | null;
   has_academy_access?: boolean;
+  has_signals_access?: boolean;
   ton_wallet?: string | null;
 }
 
 export interface UserRole {
-  // User type
   isAdmin: boolean;
   isVip: boolean;
   isFree: boolean;
   isPending: boolean;
   isBanned: boolean;
-
-  // Derived permissions
   canSeeVipSignals: boolean;
   canSeeVipAcademy: boolean;
   canAccessAdmin: boolean;
   canEditProfile: boolean;
-
-  // Renewal prompt
   showRenewalPrompt: boolean;
   dismissRenewalPrompt: () => void;
-
-  // Current user data
   currentUser: Affiliate | null;
   isLoading: boolean;
 }
 
 function computeVipExpired(affiliate: Affiliate | null): boolean {
   if (!affiliate?.is_vip) return false;
-  if (!affiliate.vip_expires_at) return false; // lifetime — never expires
+  if (!affiliate.vip_expires_at) return false;
   return new Date(affiliate.vip_expires_at) < new Date();
 }
 
@@ -53,6 +48,8 @@ export function useUserRole(): UserRole {
   const [isLoading, setIsLoading] = useState(true);
   const [showRenewalPrompt, setShowRenewalPrompt] = useState(false);
   const { config } = useClientConfig();
+  const { tenant_id: routeTenantId } = useParams();
+  const tenantId = routeTenantId || FALLBACK_TENANT_ID;
 
   const telegramIdStr = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
   const telegramId = telegramIdStr ? Number(telegramIdStr) : null;
@@ -64,40 +61,127 @@ export function useUserRole(): UserRole {
     }
 
     try {
-      let query = supabase.from('affiliates').select('*').eq('tenant_id', TENANT_ID);
+      let affiliate: Affiliate | null = null;
+      const { data: { user } } = await supabase.auth.getUser();
+      const currentAuthId = user?.id;
+      const registrationData = localStorage.getItem(`sniper_affiliate_${tenantId}`);
+
+      const getStoredAffiliate = async (): Promise<Affiliate | null> => {
+        if (!registrationData) return null;
+
+        try {
+          const stored = JSON.parse(registrationData);
+
+          if (stored.id) {
+            const { data } = await supabase
+              .from('affiliates')
+              .select('*')
+              .eq('tenant_id', tenantId)
+              .eq('id', stored.id)
+              .maybeSingle();
+
+            if (data) return data as Affiliate;
+          }
+
+          if (stored.telegram_id) {
+            const { data } = await supabase
+              .from('affiliates')
+              .select('*')
+              .eq('tenant_id', tenantId)
+              .eq('telegram_id', String(stored.telegram_id))
+              .maybeSingle();
+
+            if (data) return data as Affiliate;
+          }
+
+          if (stored.user) {
+            return stored.user as Affiliate;
+          }
+        } catch (e) {
+          console.error('localStorage fallback error:', e);
+        }
+
+        return null;
+      };
 
       if (telegramId) {
-        query = query.eq('telegram_id', telegramId);
-      } else {
-        // Fallback for local browser testing outside Telegram
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user?.id) {
-          query = query.eq('id', user.id);
-        } else {
-          setIsLoading(false);
-          return;
+        const { data } = await supabase
+          .from('affiliates')
+          .select('*')
+          .eq('tenant_id', tenantId)
+          .eq('telegram_id', String(telegramId))
+          .maybeSingle();
+        affiliate = data as Affiliate | null;
+      } else if (currentAuthId) {
+        const { data } = await supabase
+          .from('affiliates')
+          .select('*')
+          .eq('tenant_id', tenantId)
+          .eq('id', currentAuthId)
+          .maybeSingle();
+        affiliate = data as Affiliate | null;
+
+        if (!affiliate) {
+          const storedAffiliate = await getStoredAffiliate();
+          if (storedAffiliate) {
+            if (storedAffiliate.id !== currentAuthId) {
+              const { data: affiliateByOldId } = await supabase
+                .from('affiliates')
+                .select('*')
+                .eq('tenant_id', tenantId)
+                .eq('id', storedAffiliate.id)
+                .maybeSingle();
+
+              if (affiliateByOldId) {
+                const { error: updateError } = await supabase
+                  .from('affiliates')
+                  .update({ id: currentAuthId })
+                  .eq('id', storedAffiliate.id)
+                  .eq('tenant_id', tenantId);
+
+                if (!updateError) {
+                  affiliateByOldId.id = currentAuthId;
+                  localStorage.setItem(`sniper_affiliate_${tenantId}`, JSON.stringify({
+                    id: currentAuthId,
+                    telegram_id: affiliateByOldId.telegram_id,
+                    createdAt: new Date().toISOString(),
+                  }));
+                }
+                affiliate = affiliateByOldId as Affiliate;
+              }
+            } else {
+              affiliate = storedAffiliate;
+            }
+          }
         }
       }
 
-      const { data, error } = await query.single();
-
-      if (error && error.code !== 'PGRST116') {
-        console.error('useUserRole: Error fetching affiliate:', error);
+      if (!affiliate) {
+        affiliate = await getStoredAffiliate();
       }
 
-      const affiliate = data as Affiliate | null;
+      if (!affiliate && !currentAuthId) {
+        setIsLoading(false);
+        return;
+      }
 
-      // ─── VIP Expiry Check ─────────────────────────────────
       if (affiliate && computeVipExpired(affiliate)) {
-        // Auto-downgrade to free silently
         const { error: downgradeError } = await supabase
           .from('affiliates')
-          .update({ is_vip: false, vip_expires_at: null })
-          .eq('id', affiliate.id);
+          .update({
+            is_vip: false,
+            vip_expires_at: null,
+            has_signals_access: false,
+            has_academy_access: false,
+          })
+          .eq('id', affiliate.id)
+          .eq('tenant_id', tenantId);
 
         if (!downgradeError) {
           affiliate.is_vip = false;
           affiliate.vip_expires_at = null;
+          affiliate.has_signals_access = false;
+          affiliate.has_academy_access = false;
           setShowRenewalPrompt(true);
         }
       }
@@ -108,7 +192,7 @@ export function useUserRole(): UserRole {
     } finally {
       setIsLoading(false);
     }
-  }, [telegramId]);
+  }, [telegramId, tenantId]);
 
   useEffect(() => {
     fetchUser();
@@ -122,7 +206,7 @@ export function useUserRole(): UserRole {
         event: '*',
         schema: 'public',
         table: 'affiliates',
-        filter: `telegram_id=eq.${telegramId} AND tenant_id=eq.${TENANT_ID}`
+        filter: `telegram_id=eq.${telegramId} AND tenant_id=eq.${tenantId}`,
       }, () => {
         fetchUser();
       })
@@ -131,21 +215,18 @@ export function useUserRole(): UserRole {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [telegramId, fetchUser]);
+  }, [telegramId, tenantId, fetchUser]);
 
-  // Determine admin status
   let isAdmin =
     currentUser?.role === 'admin' ||
     currentUser?.role === 'mentor' ||
     (telegramId !== null && config?.telegramId !== null && telegramId === config?.telegramId);
 
-  // Derive roles
   let isBanned = currentUser?.status === 'banned';
   let isPending = currentUser?.status === 'pending' && !isAdmin;
   let isVip = currentUser?.is_vip === true && currentUser?.status === 'active' && !isAdmin;
   let isFree = currentUser?.status === 'active' && !currentUser?.is_vip && !isAdmin;
 
-  // DEBUG OVERRIDE
   const debugRole = localStorage.getItem('debug_role');
   if (debugRole) {
     isAdmin = debugRole === 'admin';
@@ -161,8 +242,8 @@ export function useUserRole(): UserRole {
     isFree,
     isPending,
     isBanned,
-    canSeeVipSignals: isAdmin || isVip,
-    canSeeVipAcademy: isAdmin || isVip,
+    canSeeVipSignals: isAdmin || currentUser?.has_signals_access === true,
+    canSeeVipAcademy: isAdmin || currentUser?.has_academy_access === true,
     canAccessAdmin: isAdmin,
     canEditProfile: isAdmin,
     showRenewalPrompt,

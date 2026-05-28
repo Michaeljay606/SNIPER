@@ -4,12 +4,14 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useLongPress } from '../hooks/useLongPress';
 import { useClientConfig } from '../hooks/useClientConfig';
+import { usePlanFeatures, shouldShowSniperBadge } from '../hooks/usePlanFeatures';
 import { TradingModeProvider } from '../context/TradingModeContext';
 import MasterControlPanel from '../components/MasterControlPanel';
 import { useUserRole } from '../hooks/useUserRole';
 import SniperLogo from '../assets/SniperLogo';
 import { motion, AnimatePresence } from 'framer-motion';
 import NotificationBell from '../components/NotificationBell';
+import { useTranslation } from 'react-i18next';
 
 function CheckCircleIcon({ size, className }: { size: number; className?: string }) {
   return (
@@ -24,21 +26,41 @@ export default function StudentShell() {
   const { tenant_id } = useParams();
   const location = useLocation();
   const { config: tenantConfig, loading: configLoading } = useClientConfig();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { isAdmin, isLoading: roleLoading } = useUserRole();
+  const planFeatures = usePlanFeatures();
+  const sniperBadgeVisible = shouldShowSniperBadge(planFeatures, tenantConfig?.hideSniperBadge);
+  const outletPlanFeatures = { ...planFeatures, showSniperBadge: sniperBadgeVisible };
   const [showUpgradeSheet, setShowUpgradeSheet] = useState(false);
   const [showMasterControl, setShowMasterControl] = useState(false);
+  const [showConversionSheet, setShowConversionSheet] = useState(false);
+
+  useEffect(() => {
+    const startParam = (window as any).Telegram?.WebApp?.initDataUnsafe?.start_param;
+    if (!startParam || !tenant_id || startParam === tenant_id) return;
+
+    const suffix = location.pathname.split(`/app/${tenant_id}`)[1] || '/live';
+    navigate(`/app/${startParam}${suffix}${location.search}`, { replace: true });
+  }, [tenant_id, location.pathname, location.search, navigate]);
 
   // Check for mode=master in URL
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
-    if (searchParams.get('mode') === 'master') {
+    const isMasterMode = searchParams.get('mode') === 'master';
+    
+    console.log('🔗 URL Check:', { isMasterMode, search: location.search });
+    
+    if (isMasterMode) {
       const telegramId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString();
       const operatorId = import.meta.env.VITE_OPERATOR_ID;
       const isDev = import.meta.env.DEV;
       
+      console.log('🔐 Master mode requested:', { telegramId, operatorId, isDev });
+      
       // Bypass check for test/dev or if specifically allowed
-      if (telegramId === operatorId || isDev || !operatorId) {
+      if (isDev || !operatorId || telegramId === operatorId) {
+        console.log('✅ MASTER CONTROL OPENED VIA URL');
         setShowMasterControl(true);
       }
     }
@@ -50,20 +72,29 @@ export default function StudentShell() {
     }
   }, [isAdmin, roleLoading, location.pathname, tenant_id, navigate]);
 
-  // Redirect to live tab on initial mount/refresh
+  // Redirect to live tab on initial mount/refresh (preserve query params)
   useEffect(() => {
-    if (tenant_id) {
-      navigate(`/app/${tenant_id}/live`, { replace: true });
+    if (tenant_id && !location.pathname.includes('/app/')) {
+      const searchParams = new URLSearchParams(location.search);
+      const queryString = searchParams.toString() ? `?${searchParams.toString()}` : '';
+      navigate(`/app/${tenant_id}/live${queryString}`, { replace: true });
     }
   }, []);
 
+  function toggleLanguage() {
+    const currentLang = i18n.language.substring(0, 2);
+    const next = currentLang === 'fr' ? 'en' : 'fr';
+    i18n.changeLanguage(next);
+    localStorage.setItem('sniper_lang', next);
+  }
+
   const navItems = [
-    { path: 'live',    icon: Activity,      label: 'Live'    },
-    { path: 'academy', icon: GraduationCap, label: 'Academy' },
-    { path: 'calcul',  icon: Calculator,    label: 'Calcul'  },
-    { path: 'profile', icon: User,          label: tenantConfig?.mentorName?.split(' ')[0] || 'Mentor' },
+    { path: 'live',    icon: Activity,      label: t('common.live') },
+    { path: 'academy', icon: GraduationCap, label: t('common.academy') },
+    { path: 'calcul',  icon: Calculator,    label: t('common.calculator') },
+    { path: 'profile', icon: User,          label: tenantConfig?.mentorName?.split(' ')[0] || t('common.mentor') },
   ];
-  if (isAdmin) navItems.push({ path: 'admin', icon: ShieldCheck, label: 'Admin' });
+  if (isAdmin) navItems.push({ path: 'admin', icon: ShieldCheck, label: t('common.admin') });
 
   const { refresh } = useClientConfig();
 
@@ -74,16 +105,23 @@ export default function StudentShell() {
   }, []);
 
   const longPress = useLongPress(() => {
+    console.log('🎯 LONG PRESS TRIGGERED');
+    
     const telegramId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString();
     const operatorId = import.meta.env.VITE_OPERATOR_ID;
     const isDev = import.meta.env.DEV;
     const searchParams = new URLSearchParams(location.search);
     const isBypass = searchParams.get('auth') === 'bypass';
     
-    if (telegramId === operatorId || isDev || !operatorId || isBypass) {
+    console.log('📊 Debug info:', { telegramId, operatorId, isDev, isBypass });
+    
+    // In dev or if no operatorId configured, always show master
+    if (isDev || !operatorId || telegramId === operatorId || isBypass) {
+      console.log('✅ MASTER CONTROL PANEL OPENED');
       setShowMasterControl(true);
     } else {
-      setShowUpgradeSheet(true);
+      console.log('💰 CONVERSION SHEET OPENED');
+      setShowConversionSheet(true);
     }
   }, 3000);
 
@@ -112,6 +150,24 @@ export default function StudentShell() {
             SNIPER TERMINAL
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.1em', color: 'var(--muted)', textTransform: 'uppercase' }}>
+            <button
+              type="button"
+              onClick={toggleLanguage}
+              style={{
+                fontFamily: "'Space Mono', monospace",
+                fontSize: '10px',
+                background: 'rgba(255,255,255,0.04)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '8px',
+                padding: '5px 10px',
+                color: 'rgba(255,255,255,0.6)',
+                fontWeight: 700,
+                letterSpacing: '0.08em',
+                cursor: 'pointer',
+              }}
+            >
+              {i18n.language.substring(0, 2) === 'fr' ? 'EN' : 'FR'}
+            </button>
             SNIPER-V2.4
             <span style={{ display: 'flex', gap: 2, alignItems: 'flex-end' }}>
               {[4, 7, 5, 9].map((h, i) => (
@@ -178,19 +234,32 @@ export default function StudentShell() {
       </header>
 
       <main style={{ paddingBottom: 80 }}>
-        <Outlet context={{ tenant_id, tenantConfig }} />
+        <Outlet context={{ tenant_id, tenantConfig, planFeatures: outletPlanFeatures }} />
       </main>
 
       {/* ─── BOTTOM NAVIGATION ───────────────────────── */}
       <nav className="floating-dock" style={{ paddingBottom: 'calc(12px + env(safe-area-inset-bottom, 0px))' }}>
-        {/* POWERED BY strip */}
-        <div
-          style={{ fontFamily: 'var(--mono)', fontSize: 8, opacity: 0.2, textAlign: 'center', letterSpacing: '0.1em', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, paddingBottom: 6, cursor: 'default', userSelect: 'none', textTransform: 'uppercase' }}
-          {...longPress}
-        >
-          <SniperLogo size={10} animated={false} />
-          <span>SNIPER</span>
-        </div>
+        {/* POWERED BY SNIPER */}
+        {sniperBadgeVisible ? (
+          <div
+            {...longPress}
+            style={{
+              textAlign: 'center',
+              paddingBottom: '4px',
+              paddingTop: '6px',
+              fontFamily: 'Space Mono, monospace',
+              fontSize: '8px',
+              letterSpacing: '0.15em',
+              color: 'rgba(255,255,255,0.15)',
+              userSelect: 'none',
+              cursor: 'default',
+            }}
+          >
+            {t('common.powered_by')}
+          </div>
+        ) : (
+          <div style={{ height: '20px' }} />
+        )}
 
         {/* Nav buttons */}
         <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center' }}>
@@ -229,7 +298,7 @@ export default function StudentShell() {
         <div style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--amber)', textTransform: 'uppercase', textAlign: 'center', fontWeight: 700 }}>Test Roles</div>
         <button onClick={() => setDebugRole('admin')} style={{ padding: '6px 12px', fontSize: 10, fontFamily: 'var(--mono)', borderRadius: 6, border: '1px solid var(--green)', background: currentDebugRole === 'admin' ? 'var(--green)' : 'transparent', color: currentDebugRole === 'admin' ? '#000' : 'var(--green)', cursor: 'pointer' }}>ADMIN</button>
         <button onClick={() => setDebugRole('vip')} style={{ padding: '6px 12px', fontSize: 10, fontFamily: 'var(--mono)', borderRadius: 6, border: '1px solid #FFD60A', background: currentDebugRole === 'vip' ? '#FFD60A' : 'transparent', color: currentDebugRole === 'vip' ? '#000' : '#FFD60A', cursor: 'pointer' }}>VIP</button>
-        <button onClick={() => setDebugRole('free')} style={{ padding: '6px 12px', fontSize: 10, fontFamily: 'var(--mono)', borderRadius: 6, border: '1px solid #fff', background: currentDebugRole === 'free' ? '#fff' : 'transparent', color: currentDebugRole === 'free' ? '#000' : '#fff', cursor: 'pointer' }}>GRATUIT</button>
+        <button onClick={() => setDebugRole('free')} style={{ padding: '6px 12px', fontSize: 10, fontFamily: 'var(--mono)', borderRadius: 6, border: '1px solid #fff', background: currentDebugRole === 'free' ? '#fff' : 'transparent', color: currentDebugRole === 'free' ? '#000' : '#fff', cursor: 'pointer' }}>{t('common.free_badge')}</button>
         {currentDebugRole && <button onClick={() => setDebugRole(null)} style={{ padding: '6px 12px', fontSize: 10, fontFamily: 'var(--mono)', borderRadius: 6, border: '1px solid var(--red)', color: 'var(--red)', background: 'transparent', cursor: 'pointer', marginTop: 4 }}>RESET</button>}
       </div>
 
@@ -261,14 +330,19 @@ export default function StudentShell() {
                 <Zap size={24} color="var(--green)" />
               </div>
               <h2 style={{ fontFamily: 'var(--mono)', fontSize: 20, fontWeight: 700, textTransform: 'uppercase', marginBottom: 8 }}>
-                Lance ta propre<br /><span style={{ color: 'var(--green)' }}>Mini App</span>
+                {t('conversion_sheet.upgrade_title_1')}<br /><span style={{ color: 'var(--green)' }}>{t('conversion_sheet.upgrade_title_2')}</span>
               </h2>
               <p style={{ fontSize: 12, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
-                Monétise ton audience comme un pro avec ton propre terminal Telegram.
+                {t('conversion_sheet.upgrade_desc')}
               </p>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
-              {['Design Premium sur mesure', 'Paiements Crypto 0% de frais', 'Espace Academy Sécurisé', 'Notifications Push en temps réel'].map((feat, i) => (
+              {[
+                t('conversion_sheet.upgrade_feat_1'),
+                t('conversion_sheet.upgrade_feat_2'),
+                t('conversion_sheet.upgrade_feat_3'),
+                t('conversion_sheet.upgrade_feat_4'),
+              ].map((feat, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--glass)', padding: '10px 14px', borderRadius: 10, border: '1px solid var(--subtle)' }}>
                   <CheckCircleIcon size={16} className="text-accent-emerald" />
                   <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{feat}</span>
@@ -276,15 +350,15 @@ export default function StudentShell() {
               ))}
             </div>
             <div style={{ textAlign: 'center', marginBottom: 20 }}>
-              <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>À partir de</span>
-              <span style={{ fontFamily: 'var(--mono)', fontSize: 24, fontWeight: 700 }}>49$/<span style={{ fontSize: 14 }}>mois</span></span>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>{t('conversion_sheet.from_label')}</span>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 24, fontWeight: 700 }}>{t('conversion_sheet.price')}</span>
             </div>
-            <a href="https://sniper.ephatatech.com" target="_blank" rel="noopener noreferrer"
+            <a href={window.location.origin} target="_blank" rel="noopener noreferrer"
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '14px 0', background: 'var(--green)', color: '#000', borderRadius: 12, fontFamily: 'var(--mono)', fontWeight: 800, fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.06em', boxShadow: '0 0 20px rgba(0,255,65,0.4)', textDecoration: 'none' }}>
-              Créer mon app <ArrowRight size={18} />
+              {t('conversion_sheet.create_app_cta')} <ArrowRight size={18} />
             </a>
             <p style={{ textAlign: 'center', fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.1em', marginTop: 12 }}>
-              🎁 30 jours EMPIRE offerts
+              {t('conversion_sheet.trial_badge')}
             </p>
           </div>
         </div>
@@ -309,6 +383,144 @@ export default function StudentShell() {
           </>
         )}
       </AnimatePresence>
+
+      {/* ─── CONVERSION SHEET (POWERED BY LONG PRESS) ─── */}
+      {showConversionSheet && (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(0,0,0,0.85)',
+          backdropFilter: 'blur(8px)',
+          zIndex: 100,
+          display: 'flex',
+          alignItems: 'flex-end',
+        }}>
+          <div style={{
+            background: '#0D0D0D',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '20px 20px 0 0',
+            padding: '24px 20px 40px',
+            width: '100%',
+          }}>
+            {/* Logo */}
+            <div style={{
+              width: '48px', height: '48px',
+              borderRadius: '14px',
+              background: 'rgba(0,255,65,0.08)',
+              border: '1px solid rgba(0,255,65,0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '22px',
+              margin: '0 auto 16px',
+            }}>
+              🎯
+            </div>
+
+            {/* Title */}
+            <div style={{
+              fontFamily: 'Space Mono, monospace',
+              fontSize: '16px',
+              fontWeight: 700,
+              color: '#F0F0F0',
+              textAlign: 'center',
+              marginBottom: '8px',
+            }}>
+              {t('conversion_sheet.title')}
+            </div>
+
+            {/* Sub */}
+            <div style={{
+              fontSize: '13px',
+              color: 'rgba(255,255,255,0.4)',
+              textAlign: 'center',
+              lineHeight: 1.6,
+              marginBottom: '24px',
+              maxWidth: '260px',
+              margin: '0 auto 24px',
+            }}>
+              {t('conversion_sheet.desc')}
+            </div>
+
+            {/* Stats */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'center',
+              gap: '24px',
+              marginBottom: '24px',
+            }}>
+              {[
+                { val: t('conversion_sheet.stat_trial_value'), lbl: t('conversion_sheet.stat_trial_label') },
+                { val: '5MIN', lbl: t('conversion_sheet.stat_start_label') },
+                { val: '100%', lbl: t('conversion_sheet.stat_custom_label') },
+              ].map(s => (
+                <div key={s.lbl} style={{
+                  textAlign: 'center',
+                }}>
+                  <div style={{
+                    fontFamily: 'Space Mono',
+                    fontSize: '18px',
+                    fontWeight: 700,
+                    color: '#00FF41',
+                  }}>
+                    {s.val}
+                  </div>
+                  <div style={{
+                    fontFamily: 'Space Mono',
+                    fontSize: '8px',
+                    color: 'rgba(255,255,255,0.2)',
+                    letterSpacing: '0.1em',
+                    marginTop: '2px',
+                  }}>
+                    {s.lbl}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* CTA */}
+            <button
+              onClick={() => {
+                window.Telegram?.WebApp?.openTelegramLink(
+                  'https://t.me/TON_USERNAME_OPERATOR'
+                );
+              }}
+              style={{
+                width: '100%',
+                height: '52px',
+                borderRadius: '14px',
+                background: '#00FF41',
+                border: 'none',
+                color: '#050507',
+                fontFamily: 'Space Mono, monospace',
+                fontSize: '13px',
+                fontWeight: 800,
+                letterSpacing: '0.06em',
+                cursor: 'pointer',
+                marginBottom: '10px',
+              }}
+            >
+              {t('conversion_sheet.cta')}
+            </button>
+
+            {/* Close */}
+            <button
+              onClick={() => setShowConversionSheet(false)}
+              style={{
+                width: '100%',
+                height: '40px',
+                background: 'transparent',
+                border: 'none',
+                color: 'rgba(255,255,255,0.3)',
+                fontFamily: 'Space Mono',
+                fontSize: '11px',
+                cursor: 'pointer',
+              }}
+            >
+              {t('common.close')}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
     </TradingModeProvider>
   );

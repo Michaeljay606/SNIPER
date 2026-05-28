@@ -9,9 +9,192 @@ import { supabase } from '../lib/supabase';
 import { useMasterData, Tenant } from '../hooks/useMasterData';
 import NeonToggle from './NeonToggle';
 import PlanBadge from './PlanBadge';
+import { REFERRAL_CODE } from '../config';
 
 const OPERATOR_ID = import.meta.env.VITE_OPERATOR_ID;
 const MASTER_PIN = import.meta.env.VITE_MASTER_PIN;
+const PLAN_COMMISSION_CENTS: Record<string, number> = {
+  free: 0,
+  basic: 490,
+  premium: 990,
+  empire: 1990,
+  pause: 0,
+};
+
+const PLAN_RULES: Record<Tenant['plan'], {
+  canUseBinary: boolean;
+  canUseHybrid: boolean;
+  canUseTon: boolean;
+  canUseBothAccess: boolean;
+  canUseManualPayment: boolean;
+  canUseElite: boolean;
+  canHideBadge: boolean;
+  canWhiteLabel: boolean;
+  maxBrokers: number;
+}> = {
+  free: {
+    canUseBinary: false,
+    canUseHybrid: false,
+    canUseTon: false,
+    canUseBothAccess: false,
+    canUseManualPayment: false,
+    canUseElite: false,
+    canHideBadge: false,
+    canWhiteLabel: false,
+    maxBrokers: 1,
+  },
+  basic: {
+    canUseBinary: false,
+    canUseHybrid: false,
+    canUseTon: false,
+    canUseBothAccess: false,
+    canUseManualPayment: true,
+    canUseElite: false,
+    canHideBadge: false,
+    canWhiteLabel: false,
+    maxBrokers: 3,
+  },
+  premium: {
+    canUseBinary: true,
+    canUseHybrid: false,
+    canUseTon: true,
+    canUseBothAccess: true,
+    canUseManualPayment: true,
+    canUseElite: true,
+    canHideBadge: true,
+    canWhiteLabel: false,
+    maxBrokers: 3,
+  },
+  empire: {
+    canUseBinary: true,
+    canUseHybrid: true,
+    canUseTon: true,
+    canUseBothAccess: true,
+    canUseManualPayment: true,
+    canUseElite: true,
+    canHideBadge: true,
+    canWhiteLabel: true,
+    maxBrokers: 3,
+  },
+  pause: {
+    canUseBinary: false,
+    canUseHybrid: false,
+    canUseTon: false,
+    canUseBothAccess: false,
+    canUseManualPayment: false,
+    canUseElite: false,
+    canHideBadge: false,
+    canWhiteLabel: false,
+    maxBrokers: 0,
+  },
+};
+
+function buildPlanChangePayload(tenant: Tenant | undefined, newPlan: Tenant['plan']) {
+  const rules = PLAN_RULES[newPlan];
+  const currentMode = String(tenant?.trading_mode || 'forex').toUpperCase();
+  const nextMode =
+    currentMode === 'BOTH' && rules.canUseHybrid ? 'BOTH' :
+    currentMode === 'BINARY' && rules.canUseBinary ? 'BINARY' :
+    'MARKETS';
+
+  const payload: Record<string, unknown> = {
+    plan: newPlan,
+    trial_ends_at: null,
+    trading_mode: nextMode,
+  };
+
+  if (!rules.canUseTon) {
+    payload.ton_payment_enabled = false;
+    payload.ton_wallet = null;
+  }
+
+  if (!rules.canUseBothAccess) {
+    payload.vip_model = rules.canUseManualPayment ? 'payment' : 'broker';
+    payload.academy_model = rules.canUseManualPayment ? 'payment' : 'broker';
+  }
+
+  if (!rules.canUseElite) {
+    payload.elite_title = null;
+    payload.elite_description = null;
+    payload.elite_price = null;
+    payload.elite_contact_url = null;
+    payload.elite_tag = null;
+  }
+
+  if (!rules.canWhiteLabel) {
+    payload.theme_color = '#00FF41';
+  }
+
+  if (rules.maxBrokers < 3) {
+    payload.broker_3_name = null;
+    payload.broker_3_url = null;
+  }
+  if (rules.maxBrokers < 2) {
+    payload.broker_2_name = null;
+    payload.broker_2_url = null;
+  }
+  if (rules.maxBrokers < 1) {
+    payload.broker_1_name = null;
+    payload.broker_1_url = null;
+  }
+
+  return payload;
+}
+
+function normalizeDbTradingModeForPlan(requestedMode: string, plan: Tenant['plan']) {
+  const rules = PLAN_RULES[plan];
+  const mode = requestedMode.toUpperCase();
+  if (mode === 'BOTH' && rules.canUseHybrid) return 'BOTH';
+  if (mode === 'BINARY' && rules.canUseBinary) return 'BINARY';
+  return 'MARKETS';
+}
+
+function formatTradingMode(mode: string | undefined) {
+  const raw = String(mode || 'MARKETS').toUpperCase();
+  if (raw === 'BINARY' || raw === 'binary') return 'BINARY';
+  if (raw === 'BOTH' || raw === 'both') return 'BOTH';
+  return 'FOREX';
+}
+
+function getEffectiveTradingModeLabel(tenant: Tenant) {
+  return formatTradingMode(normalizeDbTradingModeForPlan(String(tenant.trading_mode || 'MARKETS'), tenant.plan));
+}
+
+function hasPlanDrift(tenant: Tenant) {
+  const raw = formatTradingMode(String(tenant.trading_mode || 'MARKETS'));
+  return raw !== getEffectiveTradingModeLabel(tenant) || (tenant.plan !== 'empire' && !!tenant.trial_ends_at);
+}
+
+interface NewTenantPayload {
+  tenant_id: string;
+  mentor_name: string;
+  plan: 'free' | 'basic' | 'premium' | 'empire';
+  trading_mode: 'MARKETS' | 'BINARY' | 'BOTH';
+  licence_status: 'active';
+  theme_color: string;
+  trial_ends_at: string | null;
+  created_at: string;
+  onboarding_completed: boolean;
+  referred_by?: string;
+}
+
+interface ReferralEventRow {
+  id: string;
+  referrer_id: string;
+  referred_id: string;
+  month_number: number;
+  amount_cents: number;
+  plan_at_time: string;
+  status: 'pending' | 'validated' | 'paid';
+  created_at: string;
+  validated_at: string | null;
+}
+
+interface ReferralEventView extends ReferralEventRow {
+  referrerName: string;
+  referredName: string;
+  referredPlan: string;
+}
 
 const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
   const isDev = import.meta.env.DEV;
@@ -65,6 +248,10 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
 
   // In-app premium toast notification state
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [referralEvents, setReferralEvents] = useState<ReferralEventView[]>([]);
+  const [allReferralEvents, setAllReferralEvents] = useState<ReferralEventRow[]>([]);
+  const [validatingReferralId, setValidatingReferralId] = useState<string | null>(null);
+  const [recalibratingPlans, setRecalibratingPlans] = useState(false);
 
   const showToast = (type: 'success' | 'error' | 'info', message: string) => {
     setToast({ type, message });
@@ -81,6 +268,110 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  const fetchReferralEvents = async () => {
+    const [pendingRes, allRes, tenantsRes] = await Promise.all([
+      supabase
+        .from('referral_events')
+        .select('*')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('referral_events')
+        .select('*')
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('tenants')
+        .select('tenant_id, mentor_name, plan'),
+    ]);
+
+    if (pendingRes.error || allRes.error || tenantsRes.error) return;
+
+    const tenantRows = (tenantsRes.data || []) as Pick<Tenant, 'tenant_id' | 'mentor_name' | 'plan'>[];
+    const tenantMap = new Map(tenantRows.map(t => [t.tenant_id, t]));
+    const pendingRows = (pendingRes.data || []) as ReferralEventRow[];
+
+    setReferralEvents(pendingRows.map(event => {
+      const referrer = tenantMap.get(event.referrer_id);
+      const referred = tenantMap.get(event.referred_id);
+      return {
+        ...event,
+        referrerName: referrer?.mentor_name || event.referrer_id,
+        referredName: referred?.mentor_name || event.referred_id,
+        referredPlan: referred?.plan || event.plan_at_time,
+      };
+    }));
+    setAllReferralEvents((allRes.data || []) as ReferralEventRow[]);
+  };
+
+  useEffect(() => {
+    if (!isAuthorized) return;
+    fetchReferralEvents();
+  }, [isAuthorized]);
+
+  const generateReferralEventForTenant = async (tenantId: string) => {
+    const { data: tenant } = await supabase
+      .from('tenants')
+      .select('tenant_id, plan, referred_by')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+
+    const referredTenant = tenant as Pick<Tenant, 'tenant_id' | 'plan' | 'referred_by'> | null;
+    if (!referredTenant?.referred_by) return;
+
+    const { data: existingEvents } = await supabase
+      .from('referral_events')
+      .select('month_number')
+      .eq('referrer_id', referredTenant.referred_by)
+      .eq('referred_id', referredTenant.tenant_id)
+      .order('month_number', { ascending: false })
+      .limit(1);
+
+    const lastMonth = Number(existingEvents?.[0]?.month_number || 0);
+    if (lastMonth >= 12) return;
+
+    const amountCents = PLAN_COMMISSION_CENTS[referredTenant.plan || 'free'] || 0;
+    if (amountCents <= 0) return;
+
+    await supabase.from('referral_events').insert({
+      referrer_id: referredTenant.referred_by,
+      referred_id: referredTenant.tenant_id,
+      month_number: lastMonth + 1,
+      amount_cents: amountCents,
+      plan_at_time: referredTenant.plan || 'free',
+      status: 'pending',
+    });
+
+    fetchReferralEvents();
+  };
+
+  const handleValidateReferral = async (event: ReferralEventView) => {
+    setValidatingReferralId(event.id);
+    try {
+      const { error: eventError } = await supabase
+        .from('referral_events')
+        .update({ status: 'validated', validated_at: new Date().toISOString() })
+        .eq('id', event.id)
+        .eq('status', 'pending');
+      if (eventError) throw eventError;
+
+      const referrer = tenants.find(t => t.tenant_id === event.referrer_id);
+      const nextCredit = Number(referrer?.credit_balance || 0) + event.amount_cents;
+      const { error: creditError } = await supabase
+        .from('tenants')
+        .update({ credit_balance: nextCredit })
+        .eq('tenant_id', event.referrer_id);
+      if (creditError) throw creditError;
+
+      showToast('success', `✓ $${(event.amount_cents / 100).toFixed(2)} crédité`);
+      refresh();
+      fetchReferralEvents();
+    } catch (err) {
+      showToast('error', 'Erreur lors de la validation du parrainage');
+    } finally {
+      setValidatingReferralId(null);
+    }
+  };
 
   // PIN SCREEN — shown when not Telegram-authorized
   if (!isAuthorized) {
@@ -215,7 +506,7 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
 
         {/* Footer hint */}
         <div style={{ marginTop: 24, fontSize: 8, color: 'rgba(255,255,255,0.12)', letterSpacing: '0.1em' }}>
-          SNIPER TERMINAL · EPHATA TECH · v2.4.0
+          SNIPER TERMINAL · SNIPER · v2.4.0
         </div>
 
         <style>{`
@@ -238,6 +529,8 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
     );
   }, [tenants, search]);
 
+  const driftTenants = useMemo(() => tenants.filter(hasPlanDrift), [tenants]);
+
   const handleForceConfirm = async (txId: string) => {
     const hash = window.prompt("Entrer le TxHash pour forcer la confirmation:");
     if (!hash) return;
@@ -245,6 +538,10 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
     try {
       const { error } = await supabase.from('payment_transactions').update({ status: 'confirmed', tx_hash: hash }).eq('id', txId);
       if (error) throw error;
+      const tx = transactions.find(item => item.id === txId);
+      if (tx?.tenant_id) {
+        await generateReferralEventForTenant(tx.tenant_id);
+      }
       refresh();
     } catch (err) {
       showToast('error', 'Erreur lors de la confirmation forcée');
@@ -256,12 +553,13 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
     setCreating(true);
     
     const tid = newMentor.id.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    const effectivePlan = newMentor.isTrial ? 'empire' : newMentor.plan;
     
-    const payload = {
+    const payload: NewTenantPayload = {
       tenant_id: tid,
       mentor_name: newMentor.name,
-      plan: newMentor.isTrial ? 'empire' : newMentor.plan,
-      trading_mode: newMentor.tradingMode, // already uppercase: 'MARKETS' | 'BINARY'
+      plan: effectivePlan,
+      trading_mode: normalizeDbTradingModeForPlan(newMentor.tradingMode, effectivePlan),
       licence_status: 'active',
       theme_color: '#00FF41',
       trial_ends_at: newMentor.isTrial ? new Date(Date.now() + 7*24*60*60*1000).toISOString() : null,
@@ -270,8 +568,29 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
     };
 
     try {
+      let referrerToIncrement: Pick<Tenant, 'tenant_id' | 'referral_count'> | null = null;
+      if (REFERRAL_CODE) {
+        const { data: referrer } = await supabase
+          .from('tenants')
+          .select('tenant_id, referral_count')
+          .eq('referral_code', REFERRAL_CODE)
+          .maybeSingle();
+
+        const referrerRow = referrer as Pick<Tenant, 'tenant_id' | 'referral_count'> | null;
+        if (referrerRow?.tenant_id && referrerRow.tenant_id !== tid) {
+          payload.referred_by = referrerRow.tenant_id;
+          referrerToIncrement = referrerRow;
+        }
+      }
+
       const { error } = await supabase.from('tenants').insert(payload);
       if (error) throw error;
+      if (referrerToIncrement) {
+        await supabase
+          .from('tenants')
+          .update({ referral_count: Number(referrerToIncrement.referral_count || 0) + 1 })
+          .eq('tenant_id', referrerToIncrement.tenant_id);
+      }
       
       // Auto-copy link
       const link = `${window.location.origin}/app/${tid}`;
@@ -280,8 +599,9 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
       setNewMentor({ name: '', id: '', tradingMode: 'MARKETS', plan: 'free', isTrial: true });
       refresh();
       showToast('success', `✓ ${payload.mentor_name} créé — ID: ${tid}\nLien copié !`);
-    } catch (err: any) {
-      showToast('error', err.message === 'Duplicate' ? 'Cet ID est déjà utilisé' : err.message);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Erreur inconnue';
+      showToast('error', message === 'Duplicate' ? 'Cet ID est deja utilise' : message);
     } finally {
       setCreating(false);
     }
@@ -303,16 +623,59 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
     }
   };
 
-  const handlePlanChange = async (tenantId: string, newPlan: any) => {
+  const handlePlanChange = async (tenantId: string, newPlan: Tenant['plan']) => {
     const oldTenants = [...tenants];
-    setTenants(tenants.map(t => t.tenant_id === tenantId ? { ...t, plan: newPlan } : t));
+    const tenant = tenants.find(t => t.tenant_id === tenantId);
+    const payload = buildPlanChangePayload(tenant, newPlan);
+    const optimisticMode =
+      payload.trading_mode === 'BOTH' ? 'both' :
+      payload.trading_mode === 'BINARY' ? 'binary' :
+      'forex';
+
+    setTenants(tenants.map(t => t.tenant_id === tenantId ? {
+      ...t,
+      plan: newPlan,
+      trial_ends_at: null,
+      trading_mode: optimisticMode,
+    } : t));
     
     try {
-      const { error } = await supabase.from('tenants').update({ plan: newPlan }).eq('tenant_id', tenantId);
+      const { error } = await supabase.from('tenants').update(payload).eq('tenant_id', tenantId);
       if (error) throw error;
+      showToast('success', `Plan ${newPlan.toUpperCase()} appliqué · accès recalibrés`);
     } catch (err) {
       setTenants(oldTenants);
       showToast('error', 'Erreur lors du changement de plan');
+    }
+  };
+
+  const handleRecalibratePlanAccess = async () => {
+    if (driftTenants.length === 0) {
+      showToast('info', 'Tous les plans sont deja propres');
+      return;
+    }
+
+    setRecalibratingPlans(true);
+    try {
+      const results = await Promise.all(
+        driftTenants.map(tenant =>
+          supabase
+            .from('tenants')
+            .update(buildPlanChangePayload(tenant, tenant.plan))
+            .eq('tenant_id', tenant.tenant_id)
+        )
+      );
+
+      const failed = results.find(result => result.error);
+      if (failed?.error) throw failed.error;
+
+      showToast('success', `${driftTenants.length} tenant(s) recalibres`);
+      refresh();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erreur inconnue';
+      showToast('error', `Recalibrage impossible: ${message}`);
+    } finally {
+      setRecalibratingPlans(false);
     }
   };
 
@@ -345,7 +708,32 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
     }
   };
 
-  const trials = tenants.filter(t => t.trial_ends_at);
+  const trials = tenants.filter(t => {
+    if (t.plan !== 'empire' || !t.trial_ends_at) return false;
+    return new Date(t.trial_ends_at).getTime() > Date.now();
+  });
+  const referralPendingCents = allReferralEvents
+    .filter(event => event.status === 'pending')
+    .reduce((sum, event) => sum + event.amount_cents, 0);
+  const now = new Date();
+  const referralValidatedThisMonthCents = allReferralEvents
+    .filter(event => {
+      if (event.status !== 'validated' || !event.validated_at) return false;
+      const validatedAt = new Date(event.validated_at);
+      return validatedAt.getMonth() === now.getMonth() && validatedAt.getFullYear() === now.getFullYear();
+    })
+    .reduce((sum, event) => sum + event.amount_cents, 0);
+  const topReferrers = Array.from(
+    allReferralEvents
+      .filter(event => event.status === 'validated' || event.status === 'paid')
+      .reduce((map, event) => {
+        map.set(event.referrer_id, (map.get(event.referrer_id) || 0) + event.amount_cents);
+        return map;
+      }, new Map<string, number>())
+      .entries()
+  )
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
 
   return (
     <motion.div 
@@ -552,20 +940,26 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
             <div>
               <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.2)', marginBottom: 6 }}>TRADING MODE</div>
               <div style={{ display: 'flex', gap: 4 }}>
-                {(['MARKETS', 'BINARY', 'BOTH'] as const).map(m => (
-                  <button 
+                {(['MARKETS', 'BINARY', 'BOTH'] as const).map(m => {
+                  const effectivePlan = newMentor.isTrial ? 'empire' : newMentor.plan;
+                  const rules = PLAN_RULES[effectivePlan];
+                  const allowed = m === 'MARKETS' || (m === 'BINARY' && rules.canUseBinary) || (m === 'BOTH' && rules.canUseHybrid);
+                  return (
+                  <button
                     key={m}
-                    onClick={() => setNewMentor({...newMentor, tradingMode: m})}
+                    onClick={() => allowed && setNewMentor({...newMentor, tradingMode: m})}
+                    disabled={!allowed}
                     style={{ 
                       flex: 1, padding: '6px', fontSize: 9, borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)',
                       background: newMentor.tradingMode === m ? 'rgba(0,255,65,0.1)' : 'transparent',
-                      color: newMentor.tradingMode === m ? '#00FF41' : 'rgba(255,255,255,0.3)',
-                      cursor: 'pointer'
+                      color: !allowed ? 'rgba(255,255,255,0.12)' : (newMentor.tradingMode === m ? '#00FF41' : 'rgba(255,255,255,0.3)'),
+                      cursor: allowed ? 'pointer' : 'not-allowed'
                     }}
                   >
                     {m === 'MARKETS' ? 'FOREX' : m === 'BINARY' ? 'BINARY' : 'BOTH'}
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -626,9 +1020,111 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
         )}
 
         {/* SECTION 2 — TENANT LIST */}
+        <section style={{
+          background: 'rgba(255,255,255,0.02)',
+          border: '1px solid rgba(0,255,65,0.08)',
+          borderTop: '2px solid #00FF41',
+          borderRadius: 12,
+          padding: 14,
+          marginBottom: 16
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#00FF41' }}>PARRAINAGE</div>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', marginTop: 3 }}>Validation manuelle des credits facture</div>
+            </div>
+            <button type="button" onClick={fetchReferralEvents} style={{ background: 'rgba(0,255,65,0.06)', border: '1px solid rgba(0,255,65,0.15)', borderRadius: 8, color: '#00FF41', padding: 8, cursor: 'pointer' }}>
+              <RefreshCw size={13} />
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
+            <div style={{ background: 'rgba(255,255,255,0.03)', padding: 8, borderRadius: 8 }}>
+              <div style={{ fontSize: 7, color: 'rgba(255,255,255,0.3)' }}>PENDING</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#FFD60A' }}>${(referralPendingCents / 100).toFixed(2)}</div>
+            </div>
+            <div style={{ background: 'rgba(255,255,255,0.03)', padding: 8, borderRadius: 8 }}>
+              <div style={{ fontSize: 7, color: 'rgba(255,255,255,0.3)' }}>VALIDE CE MOIS</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#00FF41' }}>${(referralValidatedThisMonthCents / 100).toFixed(2)}</div>
+            </div>
+            <div style={{ background: 'rgba(255,255,255,0.03)', padding: 8, borderRadius: 8 }}>
+              <div style={{ fontSize: 7, color: 'rgba(255,255,255,0.3)' }}>TOP</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>{topReferrers.length}</div>
+            </div>
+          </div>
+
+          {topReferrers.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)', marginBottom: 6 }}>TOP REFERRERS</div>
+              {topReferrers.map(([tenantId, cents]) => {
+                const referrer = tenants.find(t => t.tenant_id === tenantId);
+                return (
+                  <div key={tenantId} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'rgba(255,255,255,0.45)', marginBottom: 4 }}>
+                    <span>{referrer?.mentor_name || tenantId}</span>
+                    <span style={{ color: '#00FF41' }}>${(cents / 100).toFixed(2)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {referralEvents.length === 0 ? (
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', textAlign: 'center', padding: '18px 0' }}>
+              Aucune commission en attente.
+            </div>
+          ) : referralEvents.map(event => (
+            <div key={event.id} style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: 12, marginBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#fff' }}>{event.referrerName} -&gt; {event.referredName}</div>
+                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', marginTop: 4 }}>
+                    Mois {event.month_number}/12 - {event.referredPlan}
+                  </div>
+                  <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.2)', marginTop: 3 }}>
+                    {new Date(event.created_at).toLocaleDateString('fr-FR')}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#00FF41' }}>${(event.amount_cents / 100).toFixed(2)}</div>
+                  <button
+                    type="button"
+                    onClick={() => handleValidateReferral(event)}
+                    disabled={validatingReferralId === event.id}
+                    style={{ marginTop: 8, padding: '6px 10px', borderRadius: 6, border: 'none', background: '#00FF41', color: '#050507', fontSize: 8, fontWeight: 800, cursor: 'pointer', opacity: validatingReferralId === event.id ? 0.6 : 1 }}
+                  >
+                    {validatingReferralId === event.id ? '...' : 'VALIDER'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </section>
+
         <section>
-          <div style={{ fontSize: 8, letterSpacing: '0.18em', color: 'rgba(255,255,255,0.2)', textTransform: 'uppercase', marginBottom: 8 }}>
-            LISTE DES MENTORS
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <div style={{ fontSize: 8, letterSpacing: '0.18em', color: 'rgba(255,255,255,0.2)', textTransform: 'uppercase' }}>
+              LISTE DES MENTORS
+            </div>
+            {driftTenants.length > 0 && (
+              <button
+                type="button"
+                onClick={handleRecalibratePlanAccess}
+                disabled={recalibratingPlans}
+                style={{
+                  border: '1px solid rgba(255,214,10,0.22)',
+                  background: 'rgba(255,214,10,0.08)',
+                  color: '#FFD60A',
+                  borderRadius: 8,
+                  padding: '6px 8px',
+                  fontSize: 8,
+                  fontWeight: 800,
+                  cursor: recalibratingPlans ? 'wait' : 'pointer',
+                  opacity: recalibratingPlans ? 0.6 : 1,
+                }}
+              >
+                {recalibratingPlans ? '...' : `RECALIBRER ${driftTenants.length}`}
+              </button>
+            )}
           </div>
           <input 
             value={search} 
@@ -643,27 +1139,35 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
           
           <AnimatePresence>
             {filteredTenants.map(tenant => (
-              <motion.div 
+              <motion.div
                 key={tenant.tenant_id}
                 layout
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                style={{ 
-                  background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', 
-                  borderRadius: 12, padding: 14, marginBottom: 8 
+                style={{
+                  background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
+                  borderRadius: 12, padding: 14, marginBottom: 8
                 }}
               >
                 {/* Row 1 */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div style={{ fontSize: 14, fontWeight: 600 }}>{tenant.mentor_name}</div>
-                    <div style={{ 
+                    <div style={{
                       fontSize: 7, padding: '2px 6px', borderRadius: 4, fontWeight: 800,
-                      background: tenant.trading_mode === 'binary' ? 'rgba(139,92,246,0.1)' : (tenant.trading_mode === 'both' ? 'rgba(59,130,246,0.1)' : 'rgba(0,255,65,0.1)'),
-                      color: tenant.trading_mode === 'binary' ? '#8B5CF6' : (tenant.trading_mode === 'both' ? '#3B82F6' : '#00FF41')
+                      background: getEffectiveTradingModeLabel(tenant) === 'BINARY' ? 'rgba(139,92,246,0.1)' : (getEffectiveTradingModeLabel(tenant) === 'BOTH' ? 'rgba(59,130,246,0.1)' : 'rgba(0,255,65,0.1)'),
+                      color: getEffectiveTradingModeLabel(tenant) === 'BINARY' ? '#8B5CF6' : (getEffectiveTradingModeLabel(tenant) === 'BOTH' ? '#3B82F6' : '#00FF41')
                     }}>
-                      {tenant.trading_mode === 'both' ? 'F+B' : tenant.trading_mode?.toUpperCase()}
+                      {getEffectiveTradingModeLabel(tenant) === 'BOTH' ? 'F+B' : getEffectiveTradingModeLabel(tenant)}
                     </div>
+                    {hasPlanDrift(tenant) && (
+                      <div style={{
+                        fontSize: 7, padding: '2px 6px', borderRadius: 4, fontWeight: 800,
+                        background: 'rgba(255,214,10,0.08)', color: '#FFD60A', border: '1px solid rgba(255,214,10,0.18)'
+                      }}>
+                        RECALIBRÉ
+                      </div>
+                    )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <PlanBadge plan={tenant.plan} />
@@ -699,7 +1203,7 @@ const MasterControlPanel = ({ onClose }: { onClose: () => void }) => {
 
                 {/* Row 4 — Plan Selector */}
                 <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
-                  {['free', 'basic', 'premium', 'empire', 'pause'].map(p => (
+                  {(['free', 'basic', 'premium', 'empire', 'pause'] as Tenant['plan'][]).map(p => (
                     <button 
                       key={p}
                       onClick={() => handlePlanChange(tenant.tenant_id, p)}

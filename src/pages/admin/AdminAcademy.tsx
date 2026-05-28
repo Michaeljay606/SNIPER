@@ -28,7 +28,7 @@ export default function AdminAcademy() {
     if (!editingModuleData.title) return;
     const payload = { ...editingModuleData, tenant_id: TENANT_ID };
     if (payload.id) {
-      await supabase.from('modules').update(payload).eq('id', payload.id);
+      await supabase.from('modules').update(payload).eq('id', payload.id).eq('tenant_id', TENANT_ID);
     } else {
       await supabase.from('modules').insert(payload);
     }
@@ -38,8 +38,8 @@ export default function AdminAcademy() {
 
   const deleteModule = async (id: string) => {
     if (confirm('Supprimer ce module et toutes ses leçons ?')) {
-      await supabase.from('lessons').delete().eq('module_id', id);
-      await supabase.from('modules').delete().eq('id', id);
+      await supabase.from('lessons').delete().eq('module_id', id).eq('tenant_id', TENANT_ID);
+      await supabase.from('modules').delete().eq('id', id).eq('tenant_id', TENANT_ID);
       fetchData();
     }
   };
@@ -52,7 +52,7 @@ export default function AdminAcademy() {
     }
     
     if (payload.id) {
-      await supabase.from('lessons').update(payload).eq('id', payload.id);
+      await supabase.from('lessons').update(payload).eq('id', payload.id).eq('tenant_id', TENANT_ID);
     } else {
       await supabase.from('lessons').insert(payload);
     }
@@ -62,7 +62,7 @@ export default function AdminAcademy() {
 
   const deleteLesson = async (id: string) => {
     if (confirm('Supprimer cette leçon ?')) {
-      await supabase.from('lessons').delete().eq('id', id);
+      await supabase.from('lessons').delete().eq('id', id).eq('tenant_id', TENANT_ID);
       fetchData();
     }
   };

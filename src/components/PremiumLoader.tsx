@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import SniperLogo from '../assets/SniperLogo';
+import { useTranslation } from 'react-i18next';
 
 export interface PremiumLoaderProps {
   onComplete: () => void;
@@ -62,6 +63,7 @@ function AnimatedChartMobile() {
 }
 
 export function PremiumLoader({ onComplete, tenantName, ready = true }: PremiumLoaderProps) {
+  const { t } = useTranslation();
   const [phase, setPhase] = useState<'booting' | 'fadeout'>('booting');
   const [minTimeElapsed, setMinTimeElapsed] = useState(false);
   const hasCompleted = useRef(false);
@@ -161,22 +163,6 @@ export function PremiumLoader({ onComplete, tenantName, ready = true }: PremiumL
           <span style={{ color: '#00FF41' }}>TERMINAL</span>
         </motion.div>
 
-        {/* ── POWERED BY SNIPER ── */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.8, delay: 0.7 }}
-          style={{
-            fontFamily: "'Space Mono', monospace",
-            fontSize: 10,
-            color: 'rgba(255,255,255,0.4)',
-            letterSpacing: '0.15em',
-            textTransform: 'uppercase',
-            marginTop: 6
-          }}
-        >
-          POWERED BY SNIPER
-        </motion.div>
 
         {/* ── BARRE DE CHARGEMENT CLEAN ── */}
         <motion.div
@@ -215,7 +201,7 @@ export function PremiumLoader({ onComplete, tenantName, ready = true }: PremiumL
             opacity: 0.8
           }}
         >
-          Vérification accès...
+          {t('common.verifying_access')}
         </motion.div>
 
         </div>

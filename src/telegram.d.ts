@@ -13,9 +13,11 @@ interface TelegramWebApp {
   close: () => void;
   setHeaderColor: (color: string) => void;
   setBackgroundColor: (color: string) => void;
+  openTelegramLink?: (url: string) => void;
   version: string;
   initDataUnsafe: {
     user?: TelegramUser;
+    start_param?: string;
   };
 }
 

@@ -9,6 +9,10 @@ export interface Tenant {
   trading_mode: 'forex' | 'binary' | 'both';
   created_at: string;
   trial_ends_at?: string | null;
+  referral_code?: string | null;
+  referred_by?: string | null;
+  referral_count?: number | null;
+  credit_balance?: number | null;
 }
 
 export interface Transaction {
